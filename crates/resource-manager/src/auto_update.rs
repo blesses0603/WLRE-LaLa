@@ -44,6 +44,15 @@ impl Config {
             max_bytes: 8 * 1024 * 1024 * 1024,
         }
     }
+
+    /// 由平台已建立的私有快取位置啟動；適用於桌面與 Android 平台適配層。
+    pub fn from_private_location(
+        location: &crate::platform_storage::CacheLocation,
+        platform: Platform,
+        executable: String,
+    ) -> Self {
+        Self::new(location.root().to_owned(), platform, executable)
+    }
 }
 
 /// 結構化事件供平台呈現與記錄；沒有封包路徑或遊戲內容。
@@ -152,11 +161,16 @@ impl AutoUpdater {
                             if error == UpdateError::UpdateCancelled {
                                 break;
                             }
-                            if let Ok(Some(cache)) = offline_cache::verify(&config.root) {
+                            if matches!(
+                                error,
+                                UpdateError::RequestFailed | UpdateError::UnexpectedResponse
+                            ) {
+                                if let Ok(Some(cache)) = offline_cache::verify(&config.root) {
                                 let _ = tx.send(Event::OfflineCacheAvailable {
                                     data_version: cache.data_version,
                                     bundle_count: cache.bundle_count,
                                 });
+                                }
                             }
                             let _ = tx.send(Event::Failed { error });
                         }
