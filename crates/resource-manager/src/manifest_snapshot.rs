@@ -1,5 +1,6 @@
 //! 取得同一版本觀察期間的兩份官方二進位清單。
 use crate::{binary_manifest, bundle_index::BundleIndex, version_map};
+use serde::{Deserialize, Serialize};
 use std::io::Read;
 pub use wlre_core_observability::ErrorCode as SnapshotError;
 
@@ -7,7 +8,7 @@ const BASE: &str = "https://wlreftpsrc.chinesegamer.net/WLN/TW/";
 const MANIFEST_LIMIT: usize = 16 * 1024 * 1024;
 
 /// 包含兩份已通過 CRC32 與格式檢查的清單；CRC 不提供防竄改保證。
-#[derive(Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Snapshot {
     pub data_version: String,
     pub announced_executable: String,
