@@ -2,8 +2,7 @@
 use crate::{
     bundle_index::{Bundle, BundleIndex, Package},
     manifest_snapshot::{self, Snapshot},
-    offline_cache,
-    official_cache,
+    official_cache, offline_cache,
     version_map::Platform,
 };
 use std::{
