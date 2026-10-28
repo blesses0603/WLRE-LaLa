@@ -185,7 +185,7 @@ pub(crate) fn cached_sha256(root: &Path, bundle: &Bundle) -> Result<Option<Strin
     let target = root.join(format!("official-{md5}-{crc}-{}", bundle.file_size));
     let meta = match std::fs::symlink_metadata(&target) {
         Ok(meta) => meta,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(CacheError::StorageFailure),
     };
     if !meta.file_type().is_file() {
