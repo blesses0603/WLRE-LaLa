@@ -30,6 +30,8 @@ pub enum ErrorCode {
     UnsupportedEncryption,
     DownloadQuotaExceeded,
     TrustedDigestMissing,
+    VersionStateInvalid,
+    RollbackUnavailable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

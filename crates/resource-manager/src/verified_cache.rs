@@ -114,7 +114,7 @@ fn digest_reader(
     Ok(format!("{:x}", hash.finalize()))
 }
 
-fn verify_existing(path: &Path, digest: &str, size: u64) -> Result<bool, CacheError> {
+pub(crate) fn verify_existing(path: &Path, digest: &str, size: u64) -> Result<bool, CacheError> {
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),

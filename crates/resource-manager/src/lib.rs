@@ -11,6 +11,7 @@ pub mod update_download;
 pub mod update_plan;
 pub mod verified_cache;
 pub mod version_map;
+pub mod version_state;
 pub use wlre_core_observability::ErrorCode as ResourceError;
 
 /// 可攜式資源相對路徑；不代表檔案系統操作已防止符號連結逃逸。
