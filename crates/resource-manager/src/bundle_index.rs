@@ -51,6 +51,50 @@ pub struct Bundle {
 const OBSERVED_INDEX_URL: &str =
     "https://wlreftpsrc.chinesegamer.net/WLN/TW/1.3.22/ResourcesPC/AssetBundle/DataPackage.json";
 
+/// 僅包含目前已實際觀察到的資源包種類。
+#[derive(Debug, Clone, Copy)]
+pub enum Package {
+    Data,
+    Main,
+}
+
+/// 根據官方對照的精確執行檔版本讀取索引。
+/// 僅支援已調查的資源版本 1.3.21；其他版本回報未知，不依目錄排序推定。
+/// 回傳結果不表示封包已下載、完整性已驗證或索引與二進位清單一致。
+pub fn fetch_current(
+    platform: crate::version_map::Platform,
+    executable: &str,
+    package: Package,
+) -> Result<BundleIndex, IndexError> {
+    let version = crate::version_map::fetch(platform, executable)?;
+    let url = observed_index_url(platform, &version, package)?;
+    let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|_| IndexError::RequestFailed)?;
+    fetch_with_client(&client, &url)
+}
+
+fn observed_index_url(
+    platform: crate::version_map::Platform,
+    version: &str,
+    package: Package,
+) -> Result<String, IndexError> {
+    if version != "1.3.21" {
+        return Err(IndexError::VersionMappingUnknown);
+    }
+    let platform_dir = match platform {
+        crate::version_map::Platform::Windows => "ResourcesPC",
+        crate::version_map::Platform::Android => "ResourcesAndroid",
+    };
+    let package_name = match package {
+        Package::Data => "DataPackage",
+        Package::Main => "MainPackage",
+    };
+    Ok(format!("https://wlreftpsrc.chinesegamer.net/WLN/TW/{version}/{platform_dir}/AssetBundle/{package_name}.json"))
+}
+
 /// 從固定 HTTPS 位址讀取單一已觀察的索引；拒絕重導向，限制大小及逾時。
 /// 本函式為同步操作；呼叫端應在背景工作執行並自行節流。回傳值不代表最新。
 pub fn fetch_observed_index() -> Result<BundleIndex, IndexError> {
@@ -199,6 +243,25 @@ mod tests {
         let result = fetch_with_client(&client, &format!("http://{addr}/index"));
         server.join().unwrap();
         assert_eq!(result.unwrap().bundle_list.len(), 1);
+    }
+
+    #[test]
+    fn selects_only_observed_platform_and_version_paths() {
+        use crate::version_map::Platform;
+        assert_eq!(observed_index_url(Platform::Windows,"1.3.21",Package::Main).unwrap(), "https://wlreftpsrc.chinesegamer.net/WLN/TW/1.3.21/ResourcesPC/AssetBundle/MainPackage.json");
+        assert!(
+            observed_index_url(Platform::Android, "1.3.21", Package::Data)
+                .unwrap()
+                .contains("/ResourcesAndroid/AssetBundle/DataPackage.json")
+        );
+        assert_eq!(
+            observed_index_url(Platform::Windows, "1.3.22", Package::Data),
+            Err(IndexError::VersionMappingUnknown)
+        );
+        assert_eq!(
+            observed_index_url(Platform::Windows, "../evil", Package::Data),
+            Err(IndexError::VersionMappingUnknown)
+        );
     }
 
     #[test]
