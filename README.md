@@ -47,7 +47,7 @@ cargo run -p wlre-resource-manager --example auto_update -- "私人快取目錄"
 
 ## 依 LaLa 功能按需取得資源
 
-P1 **不要求也不應預先取得整份官方資源庫**。可使用 `feature_resources::FeatureCatalog` 為 `Account`、`Map`、`Battle`、`Inventory`、`Expedition`、`Social`、`Pet` 設定必要資源。每個資源須從官方二進位清單 `AssetList` 中以 **精確 `Address` 或 `AssetPath`** 指向，不能根據檔名猜測用途。功能與官方資源的實際對應仍待 LaLa 功能開發時逐項驗證。
+P1 **不要求也不應預先取得整份官方資源庫**。可使用 `feature_resources::FeatureCatalog` 為二十一類已盤點功能（含 `Account`、`Map`、`Battle`、`Inventory`、`Expedition`、`Social`、`Pet` 等）設定必要資源。每個資源須從官方二進位清單 `AssetList` 中以 **精確 `Address` 或 `AssetPath`** 指向，不能根據檔名猜測用途。功能與官方資源的實際對應仍待 LaLa 功能開發時逐項驗證。
 
 - **功能即時觸發**：平台在確定某功能需要素材後，於工作執行緒呼叫 `feature_resources::ensure_feature` 或 `ensure_with_progress`；只選所需資產的 BundleID 與相依封包，並展開循環依賴時去重。
 - **定期檢查**：`auto_update::Config::new` 預設只監看版本；若功能已確認並登記於 `catalog`，可於啟動前透過 `enable_feature` 指定持續追蹤的功能。不存在對應表時須停止並回報錯誤，不能改成整包下載。
