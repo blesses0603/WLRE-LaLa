@@ -1,7 +1,7 @@
 //! 與官方格式無關的資源管理基礎。
 
-use serde::Serialize;
 use std::collections::BTreeMap;
+pub use wlre_core_observability::ErrorCode as ResourceError;
 
 /// 可攜式資源相對路徑；不代表檔案系統操作已防止符號連結逃逸。
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -34,14 +34,6 @@ impl ResourcePath {
 pub struct ResourceEntry {
     pub path: ResourcePath,
     pub revision: String,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ResourceError {
-    InvalidPath,
-    DuplicatePath,
-    StorageFailure,
 }
 
 /// 平台適配器需自行實作安全存取與錯誤復原。
@@ -86,22 +78,6 @@ pub fn plan_update(
         }
     }
     Ok(plan)
-}
-
-/// 固定事件名稱，避免將任意輸入當成日誌事件名稱。
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ResourceEventKind {
-    UpdateProgress,
-}
-
-/// 結構化事件可由平台日誌系統序列化為 JSON；不包含路徑或敏感資訊。
-#[derive(Debug, Serialize)]
-pub struct ResourceEvent {
-    pub event: ResourceEventKind,
-    pub completed: u64,
-    pub total: u64,
-    pub error: Option<ResourceError>,
 }
 
 #[cfg(test)]
@@ -152,19 +128,5 @@ mod tests {
             plan_update(&[], &duplicates),
             Err(ResourceError::DuplicatePath)
         );
-    }
-
-    #[test]
-    fn serializes_progress_and_error_as_json() {
-        let event = ResourceEvent {
-            event: ResourceEventKind::UpdateProgress,
-            completed: 1,
-            total: 2,
-            error: Some(ResourceError::StorageFailure),
-        };
-        let json = serde_json::to_value(event).unwrap();
-        assert_eq!(json["event"], "UPDATE_PROGRESS");
-        assert_eq!(json["error"], "STORAGE_FAILURE");
-        assert_eq!(json["completed"], 1);
     }
 }
