@@ -7,6 +7,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{Read, Write},
     path::Path,
@@ -87,12 +88,20 @@ pub fn verify(root: &Path) -> Result<Option<OfflineStatus>, OfflineError> {
         return Err(OfflineError::IndexUnsupportedVersion);
     }
     validate_snapshot(&stored.snapshot)?;
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen: BTreeMap<String, &crate::bundle_index::Bundle> = BTreeMap::new();
     for index in [&stored.snapshot.data, &stored.snapshot.main] {
         for bundle in &index.bundle_list {
-            if !seen.insert(bundle.bundle_name.to_ascii_lowercase()) {
-                return Err(OfflineError::IndexDuplicatePath);
+            let key = bundle.bundle_name.to_ascii_lowercase();
+            if let Some(previous) = seen.get(&key) {
+                if previous.file_hash != bundle.file_hash
+                    || previous.file_crc != bundle.file_crc
+                    || previous.file_size != bundle.file_size
+                {
+                    return Err(OfflineError::IndexDuplicatePath);
+                }
+                continue;
             }
+            seen.insert(key, bundle);
             if !official_cache::check_cached(root, bundle)? {
                 return Err(OfflineError::CacheIntegrityFailure);
             }
@@ -142,21 +151,22 @@ mod tests {
     use md5::{Digest, Md5};
 
     fn snapshot() -> Snapshot {
-        let bytes = b"offline test";
-        let bundle = Bundle {
-            bundle_name: "sample.bundle".into(),
-            unity_crc: 0,
-            file_hash: format!("{:x}", Md5::digest(bytes)),
-            file_crc: crc32fast::hash(bytes)
-                .to_le_bytes()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
-            file_size: bytes.len() as u64,
-            encrypted: false,
-            tags: vec![],
-            depend_ids: vec![],
-        };
+        fn bundle(name: &str, bytes: &[u8]) -> Bundle {
+            Bundle {
+                bundle_name: name.into(),
+                unity_crc: 0,
+                file_hash: format!("{:x}", Md5::digest(bytes)),
+                file_crc: crc32fast::hash(bytes)
+                    .to_le_bytes()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+                file_size: bytes.len() as u64,
+                encrypted: false,
+                tags: vec![],
+                depend_ids: vec![],
+            }
+        }
         let index = |name: &str, bundles: Vec<Bundle>| BundleIndex {
             file_version: "2.2.5".into(),
             package_name: name.into(),
@@ -169,9 +179,20 @@ mod tests {
             announced_executable: "1.3.0".into(),
             data_sha256: "a".repeat(64),
             main_sha256: "b".repeat(64),
-            data: index("DataPackage", vec![bundle]),
-            main: index("MainPackage", vec![]),
+            data: index("DataPackage", vec![bundle("data.bundle", b"offline test")]),
+            main: index("MainPackage", vec![bundle("main.bundle", b"offline main")]),
         }
+    }
+
+    fn write_bundle(root: &Path, bundle: &Bundle, bytes: &[u8]) {
+        std::fs::write(
+            root.join(format!(
+                "official-{}-{}-{}",
+                bundle.file_hash, bundle.file_crc, bundle.file_size
+            )),
+            bytes,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -181,12 +202,35 @@ mod tests {
     }
 
     #[test]
-    fn rejects_incomplete_snapshot_and_corrupted_metadata() {
+    fn verifies_saved_snapshot_offline_without_network() {
         let dir = tempfile::tempdir().unwrap();
         let value = snapshot();
-        // 實際封包缺失時不能把清單標成離線可用。
-        // 空主包也不符合既有解析器的索引限制。
-        assert_eq!(save(dir.path(), &value), Err(OfflineError::IndexInvalidEntry));
+        write_bundle(dir.path(), &value.data.bundle_list[0], b"offline test");
+        write_bundle(dir.path(), &value.main.bundle_list[0], b"offline main");
+        save(dir.path(), &value).unwrap();
+        assert_eq!(
+            verify(dir.path()).unwrap(),
+            Some(OfflineStatus {
+                data_version: "1.3.21".into(),
+                bundle_count: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn missing_or_corrupted_bundle_is_not_reported_as_offline_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let value = snapshot();
+        save(dir.path(), &value).unwrap();
+        assert_eq!(verify(dir.path()), Err(OfflineError::CacheIntegrityFailure));
+        write_bundle(dir.path(), &value.data.bundle_list[0], b"offline test");
+        write_bundle(dir.path(), &value.main.bundle_list[0], b"offline bad!");
+        assert_eq!(verify(dir.path()), Err(OfflineError::CacheIntegrityFailure));
+    }
+
+    #[test]
+    fn corrupted_metadata_is_rejected_without_network() {
+        let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(CACHE_FILE), b"broken").unwrap();
         assert_eq!(verify(dir.path()), Err(OfflineError::IndexInvalidEntry));
     }
