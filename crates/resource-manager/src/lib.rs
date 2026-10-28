@@ -88,10 +88,17 @@ pub fn plan_update(
     Ok(plan)
 }
 
-/// 結構化事件可由平台日誌系統序列化為 JSON。
+/// 固定事件名稱，避免將任意輸入當成日誌事件名稱。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResourceEventKind {
+    UpdateProgress,
+}
+
+/// 結構化事件可由平台日誌系統序列化為 JSON；不包含路徑或敏感資訊。
 #[derive(Debug, Serialize)]
-pub struct ResourceEvent<'a> {
-    pub event: &'a str,
+pub struct ResourceEvent {
+    pub event: ResourceEventKind,
     pub completed: u64,
     pub total: u64,
     pub error: Option<ResourceError>,
@@ -150,12 +157,13 @@ mod tests {
     #[test]
     fn serializes_progress_and_error_as_json() {
         let event = ResourceEvent {
-            event: "update",
+            event: ResourceEventKind::UpdateProgress,
             completed: 1,
             total: 2,
             error: Some(ResourceError::StorageFailure),
         };
         let json = serde_json::to_value(event).unwrap();
+        assert_eq!(json["event"], "UPDATE_PROGRESS");
         assert_eq!(json["error"], "STORAGE_FAILURE");
         assert_eq!(json["completed"], 1);
     }
