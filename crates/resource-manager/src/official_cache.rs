@@ -171,6 +171,34 @@ fn fetch_from(
     })
 }
 
+
+/// 只檢查現有官方快取內容，不會發出網路請求或修復損毀檔。
+/// 根目錄必須是既有私有資料夾，並由單一可信寫入者管理。
+pub(crate) fn check_cached(root: &Path, bundle: &Bundle) -> Result<bool, CacheError> {
+    let (md5, crc) = check_input(bundle)?;
+    if !std::fs::symlink_metadata(root)
+        .map_err(|_| CacheError::StorageFailure)?
+        .file_type()
+        .is_dir()
+    {
+        return Err(CacheError::CacheInvalidInput);
+    }
+    let target = root.join(format!("official-{md5}-{crc}-{}", bundle.file_size));
+    let meta = match std::fs::symlink_metadata(&target) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err(CacheError::StorageFailure),
+    };
+    if !meta.file_type().is_file() {
+        return Err(CacheError::CacheInvalidInput);
+    }
+    if meta.len() != bundle.file_size {
+        return Ok(false);
+    }
+    let file = std::fs::File::open(target).map_err(|_| CacheError::StorageFailure)?;
+    Ok(check_stream(file, std::io::sink(), bundle).is_ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
