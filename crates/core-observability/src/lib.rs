@@ -10,6 +10,15 @@ pub enum ErrorCode {
     InvalidPath,
     DuplicatePath,
     StorageFailure,
+    InvalidValidator,
+    RequestFailed,
+    UnexpectedResponse,
+    IndexTooLarge,
+    IndexInvalidEncoding,
+    IndexInvalidEntry,
+    IndexDuplicatePath,
+    IndexTooManyEntries,
+    IndexUnsupportedVersion,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

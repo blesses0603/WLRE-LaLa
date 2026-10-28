@@ -19,3 +19,6 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # 單次低負載官方端點驗收；其他分支與 PR 事件不觸發。
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.2.0'
+        run: cargo test -p wlre-resource-manager official_observed_index_smoke -- --ignored

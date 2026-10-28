@@ -1,6 +1,10 @@
 //! 與官方格式無關的資源管理基礎。
 
 use std::collections::BTreeMap;
+
+pub mod bundle_index;
+pub mod official_probe;
+pub mod script_index;
 pub use wlre_core_observability::ErrorCode as ResourceError;
 
 /// 可攜式資源相對路徑；不代表檔案系統操作已防止符號連結逃逸。
