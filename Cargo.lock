@@ -1073,6 +1073,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
+name = "unity-bundle-assets"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3508ae39f82e7d83a9999f2829a42ce5b26aa039723363ff57380b26c4980d6f"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1308,6 +1317,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "unity-bundle-assets",
  "wlre-core-observability",
 ]
 

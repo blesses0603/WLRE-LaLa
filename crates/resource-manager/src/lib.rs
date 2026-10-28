@@ -8,6 +8,7 @@ pub mod manifest_snapshot;
 pub mod official_probe;
 pub mod scheduler;
 pub mod script_index;
+pub mod unity_container;
 pub mod update_download;
 pub mod update_plan;
 pub mod verified_cache;

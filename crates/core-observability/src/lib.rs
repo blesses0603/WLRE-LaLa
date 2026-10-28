@@ -33,6 +33,8 @@ pub enum ErrorCode {
     VersionStateInvalid,
     RollbackUnavailable,
     ScheduleInvalid,
+    ExtractionInvalid,
+    ExtractionLimitExceeded,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

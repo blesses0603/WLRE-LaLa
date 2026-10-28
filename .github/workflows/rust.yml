@@ -28,3 +28,6 @@ jobs:
       # 單次觀察兩包快照，不下載遊戲封包。
       - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.3.0'
         run: cargo test -p wlre-resource-manager official_current_snapshot_smoke -- --ignored
+      # 唯讀單一官方封包，驗證容器格式；不保存內容。
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.3.0'
+        run: cargo test -p wlre-resource-manager official_unity_container_smoke -- --ignored
