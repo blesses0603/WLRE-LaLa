@@ -171,7 +171,6 @@ fn fetch_from(
     })
 }
 
-
 /// 只檢查現有官方快取內容，不會發出網路請求或修復損毀檔。
 /// 根目錄必須是既有私有資料夾，並由單一可信寫入者管理。
 pub(crate) fn check_cached(root: &Path, bundle: &Bundle) -> Result<bool, CacheError> {
