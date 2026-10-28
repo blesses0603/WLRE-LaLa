@@ -13,6 +13,11 @@ pub enum ErrorCode {
     InvalidValidator,
     RequestFailed,
     UnexpectedResponse,
+    IndexTooLarge,
+    IndexInvalidEncoding,
+    IndexInvalidEntry,
+    IndexDuplicatePath,
+    IndexTooManyEntries,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
