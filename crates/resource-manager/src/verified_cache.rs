@@ -10,29 +10,8 @@ pub use wlre_core_observability::ErrorCode as CacheError;
 
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
 
-/// 快取物件識別必須是可信來源提供的 SHA-256，不可使用未確認的官方欄位充當。
-/// 呼叫端須確保快取根目錄及其祖先是私有、可信且不受不可信程序修改。
-/// 封包來源固定為已觀察的單一目錄；本函式不選擇官方版本或解包。
-/// 已有物件會重新驗證；損毀時回傳錯誤，不覆寫該物件。
-/// 預設串行執行，不自動重試；不處理排程及行動背景政策。
-pub fn download_bundle(
-    root: &Path,
-    bundle_name: &str,
-    expected_sha256: &str,
-    size: u64,
-) -> Result<PathBuf, CacheError> {
-    download_observed_bundle(
-        root,
-        crate::version_map::Platform::Windows,
-        "1.3.22",
-        bundle_name,
-        expected_sha256,
-        size,
-    )
-}
-
 /// 僅支援已觀察的版本及平台組合；預期 SHA-256 須來自可信來源。
-pub fn download_observed_bundle(
+pub(crate) fn download_observed_bundle(
     root: &Path,
     platform: crate::version_map::Platform,
     data_version: &str,
@@ -46,7 +25,7 @@ pub fn download_observed_bundle(
         return Err(CacheError::CacheTooLarge);
     }
     let dir = match (platform, data_version) {
-        (crate::version_map::Platform::Windows, "1.3.21" | "1.3.22") => "ResourcesPC",
+        (crate::version_map::Platform::Windows, "1.3.21") => "ResourcesPC",
         (crate::version_map::Platform::Android, "1.3.21") => "ResourcesAndroid",
         _ => return Err(CacheError::VersionMappingUnknown),
     };
@@ -114,7 +93,7 @@ fn digest_reader(
     Ok(format!("{:x}", hash.finalize()))
 }
 
-pub(crate) fn verify_existing(path: &Path, digest: &str, size: u64) -> Result<bool, CacheError> {
+fn verify_existing(path: &Path, digest: &str, size: u64) -> Result<bool, CacheError> {
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),

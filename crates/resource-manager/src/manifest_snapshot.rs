@@ -10,6 +10,8 @@ const MANIFEST_LIMIT: usize = 16 * 1024 * 1024;
 #[derive(Debug)]
 pub struct Snapshot {
     pub data_version: String,
+    pub data_sha256: String,
+    pub main_sha256: String,
     pub data: BundleIndex,
     pub main: BundleIndex,
 }
@@ -107,8 +109,11 @@ fn fetch_from(
     {
         return Err(SnapshotError::SnapshotChanged);
     }
+    use sha2::{Digest, Sha256};
     Ok(Snapshot {
         data_version,
+        data_sha256: format!("{:x}", Sha256::digest(&data_bytes)),
+        main_sha256: format!("{:x}", Sha256::digest(&main_bytes)),
         data,
         main,
     })

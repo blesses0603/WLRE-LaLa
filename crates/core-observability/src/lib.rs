@@ -30,8 +30,6 @@ pub enum ErrorCode {
     UnsupportedEncryption,
     DownloadQuotaExceeded,
     TrustedDigestMissing,
-    VersionStateInvalid,
-    RollbackUnavailable,
     ScheduleInvalid,
     ExtractionInvalid,
     ExtractionLimitExceeded,
