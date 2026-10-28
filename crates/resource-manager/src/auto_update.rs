@@ -4,7 +4,6 @@ use crate::{
     manifest_snapshot::{self, Snapshot},
     official_cache,
     scheduler::Scheduler,
-    update_plan,
     version_map::Platform,
 };
 use std::{
@@ -231,46 +230,8 @@ fn run_cycle(
         changed,
         first_observation: previous.is_none(),
     });
-    let mut seen: BTreeMap<String, &Bundle> = BTreeMap::new();
-    let mut bundles: Vec<&Bundle> = Vec::new();
-    for index in [&snapshot.data, &snapshot.main] {
-        let names: Vec<String> = index
-            .bundle_list
-            .iter()
-            .map(|b| b.bundle_name.clone())
-            .collect();
-        let plan = update_plan::plan(index, None, &names)?;
-        for item in plan {
-            let bundle = index
-                .bundle_list
-                .iter()
-                .find(|b| b.bundle_name == item.name)
-                .ok_or(UpdateError::ResourceNotFound)?;
-            official_cache::check_input(bundle)?;
-            if let Some(old) = seen.get(&bundle.bundle_name) {
-                if old.file_hash != bundle.file_hash
-                    || old.file_crc != bundle.file_crc
-                    || old.file_size != bundle.file_size
-                {
-                    return Err(UpdateError::IndexDuplicatePath);
-                }
-            } else {
-                seen.insert(bundle.bundle_name.clone(), bundle);
-                bundles.push(bundle);
-            }
-        }
-    }
+    let bundles = prepare_bundles(&snapshot, config.max_files, config.max_bytes)?;
     let total = bundles.len();
-    if total > config.max_files {
-        return Err(UpdateError::DownloadQuotaExceeded);
-    }
-    let size = bundles.iter().try_fold(0u64, |sum, b| {
-        sum.checked_add(b.file_size)
-            .ok_or(UpdateError::DownloadQuotaExceeded)
-    })?;
-    if size > config.max_bytes {
-        return Err(UpdateError::DownloadQuotaExceeded);
-    }
     let mut downloaded = 0usize;
     for (index, bundle) in bundles.iter().enumerate() {
         if stop.load(Ordering::Acquire) {
@@ -302,6 +263,56 @@ fn run_cycle(
     Ok(identity)
 }
 
+pub(crate) fn prepare_bundles(
+    snapshot: &Snapshot,
+    max_files: usize,
+    max_bytes: u64,
+) -> Result<Vec<&Bundle>, UpdateError> {
+    let mut seen: BTreeMap<String, &Bundle> = BTreeMap::new();
+    let mut bundles: Vec<&Bundle> = Vec::new();
+    // 整包模式會下載兩份清單的所有封包；循環依賴不影響逐檔下載。
+    // 清單的依賴編號仍須落在同一套件範圍內，全部下載後才回報完成。
+    for index in [&snapshot.data, &snapshot.main] {
+        for bundle in &index.bundle_list {
+            if bundle.encrypted {
+                return Err(UpdateError::UnsupportedEncryption);
+            }
+            if bundle
+                .depend_ids
+                .iter()
+                .any(|&id| id >= index.bundle_list.len())
+            {
+                return Err(UpdateError::IndexInvalidEntry);
+            }
+            crate::verified_cache::validate_name(&bundle.bundle_name)?;
+            official_cache::check_input(bundle)?;
+            if let Some(old) = seen.get(&bundle.bundle_name) {
+                if old.file_hash != bundle.file_hash
+                    || old.file_crc != bundle.file_crc
+                    || old.file_size != bundle.file_size
+                {
+                    return Err(UpdateError::IndexDuplicatePath);
+                }
+            } else {
+                seen.insert(bundle.bundle_name.clone(), bundle);
+                bundles.push(bundle);
+            }
+        }
+    }
+    let total = bundles.len();
+    if total > max_files {
+        return Err(UpdateError::DownloadQuotaExceeded);
+    }
+    let size = bundles.iter().try_fold(0u64, |sum, b| {
+        sum.checked_add(b.file_size)
+            .ok_or(UpdateError::DownloadQuotaExceeded)
+    })?;
+    if size > max_bytes {
+        return Err(UpdateError::DownloadQuotaExceeded);
+    }
+    Ok(bundles)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -328,11 +339,12 @@ mod tests {
     struct MockOperations {
         version: std::cell::Cell<u8>,
         downloads: std::cell::RefCell<Vec<String>>,
+        cyclic: bool,
     }
     impl Operations for MockOperations {
         fn snapshot(&self, _: &Config) -> Result<Snapshot, UpdateError> {
             use crate::bundle_index::BundleIndex;
-            fn index(package: &str, version: u8) -> BundleIndex {
+            fn index(package: &str, version: u8, cyclic: bool) -> BundleIndex {
                 BundleIndex {
                     file_version: "2.2.5".into(),
                     package_name: package.into(),
@@ -346,7 +358,7 @@ mod tests {
                         file_size: 3,
                         encrypted: false,
                         tags: vec![],
-                        depend_ids: vec![],
+                        depend_ids: if cyclic { vec![0] } else { vec![] },
                     }],
                 }
             }
@@ -356,8 +368,8 @@ mod tests {
                 announced_executable: format!("1.4.{v}"),
                 data_sha256: format!("data{v}"),
                 main_sha256: format!("main{v}"),
-                data: index("DataPackage", v),
-                main: index("MainPackage", v),
+                data: index("DataPackage", v, self.cyclic),
+                main: index("MainPackage", v, self.cyclic),
             })
         }
         fn download(
@@ -379,6 +391,7 @@ mod tests {
         let ops = MockOperations {
             version: std::cell::Cell::new(21),
             downloads: std::cell::RefCell::new(Vec::new()),
+            cyclic: false,
         };
         let (event_tx, event_rx) = mpsc::channel();
         let (_wake_tx, wake_rx) = mpsc::channel();
@@ -395,6 +408,22 @@ mod tests {
         assert!(event_rx.try_iter().any(|event|matches!(event,Event::VersionObserved {data_version,changed:true,..} if data_version=="1.3.22")));
     }
     #[test]
+    fn full_package_download_does_not_reject_cyclic_dependency_graph() {
+        let root = tempfile::tempdir().unwrap();
+        let config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
+        let ops = MockOperations {
+            version: std::cell::Cell::new(21),
+            downloads: std::cell::RefCell::new(Vec::new()),
+            cyclic: true,
+        };
+        let (tx, _) = mpsc::channel();
+        let (_wake_tx, wake_rx) = mpsc::channel();
+        let stop = AtomicBool::new(false);
+        assert!(run_cycle(&config, &ops, &tx, &wake_rx, &stop, None).is_ok());
+        assert_eq!(ops.downloads.borrow().len(), 2);
+    }
+
+    #[test]
     fn refuses_quota_before_downloading_any_bundle() {
         let root = tempfile::tempdir().unwrap();
         let mut config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
@@ -402,6 +431,7 @@ mod tests {
         let ops = MockOperations {
             version: std::cell::Cell::new(21),
             downloads: std::cell::RefCell::new(Vec::new()),
+            cyclic: false,
         };
         let (event_tx, _) = mpsc::channel();
         let (_wake_tx, wake_rx) = mpsc::channel();
