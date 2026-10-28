@@ -52,8 +52,64 @@ pub fn download_and_activate(
     let identity = verified_cache::validate_digest(identity)?;
     let plan = update_plan::plan(request.current, request.previous, request.requested)?;
     download_selected(request)?;
+    activate_plan(request, identity, &plan)
+}
+
+/// 單一封包的已解壓容器項目；遊戲物件格式尚未解析。
+#[derive(Debug)]
+pub struct ExtractedBundle {
+    pub name: String,
+    pub entries: Vec<crate::unity_container::Entry>,
+}
+
+/// 下載及驗證所有選定封包，於記憶體提取 UnityFS 項目後才切換版本。
+/// 全部提取結果上限 128 MiB；任何失敗皆不切換版本。回傳資料須保持私有。
+/// 需可信 SHA-256、私有目錄與單一寫入者；不支援加密封包或 TextAsset 解析。
+pub fn download_extract_and_activate(
+    request: &DownloadRequest<'_>,
+    identity: &str,
+) -> Result<(crate::version_state::State, Vec<ExtractedBundle>), DownloadError> {
+    let identity = verified_cache::validate_digest(identity)?;
+    let plan = update_plan::plan(request.current, request.previous, request.requested)?;
+    let paths = download_selected(request)?;
+    let mut extracted = Vec::with_capacity(plan.len());
+    let mut total = 0usize;
+    for (item, path) in plan.iter().zip(paths) {
+        let sha = request
+            .trusted
+            .get(&item.name)
+            .ok_or(DownloadError::TrustedDigestMissing)?;
+        use std::io::Read;
+        let file = std::fs::File::open(path).map_err(|_| DownloadError::StorageFailure)?;
+        let mut bytes = Vec::new();
+        file.take(64 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| DownloadError::StorageFailure)?;
+        let entries = crate::unity_container::extract(&bytes, sha)?;
+        for entry in &entries {
+            total = total
+                .checked_add(entry.data.len())
+                .ok_or(DownloadError::ExtractionLimitExceeded)?;
+            if total > 128 * 1024 * 1024 {
+                return Err(DownloadError::ExtractionLimitExceeded);
+            }
+        }
+        extracted.push(ExtractedBundle {
+            name: item.name.clone(),
+            entries,
+        });
+    }
+    let state = activate_plan(request, identity, &plan)?;
+    Ok((state, extracted))
+}
+
+fn activate_plan(
+    request: &DownloadRequest<'_>,
+    identity: String,
+    plan: &[update_plan::PlannedBundle],
+) -> Result<crate::version_state::State, DownloadError> {
     let mut objects = BTreeMap::new();
-    for item in &plan {
+    for item in plan {
         let sha = verified_cache::validate_digest(
             request
                 .trusted
@@ -182,6 +238,50 @@ mod tests {
                 .identity,
             id
         );
+    }
+
+    #[test]
+    fn failed_extraction_does_not_activate_new_version() {
+        use crate::bundle_index::Bundle;
+        use sha2::{Digest, Sha256};
+        let root = tempfile::tempdir().unwrap();
+        let data = b"not unity";
+        let digest = format!("{:x}", Sha256::digest(data));
+        std::fs::write(root.path().join(&digest), data).unwrap();
+        let index = BundleIndex {
+            file_version: "2.2.5".into(),
+            package_name: "DataPackage".into(),
+            package_version: "v".into(),
+            asset_list: vec![],
+            bundle_list: vec![Bundle {
+                bundle_name: "sample.bundle".into(),
+                unity_crc: 0,
+                file_hash: "x".into(),
+                file_crc: "x".into(),
+                file_size: data.len() as u64,
+                encrypted: false,
+                tags: vec![],
+                depend_ids: vec![],
+            }],
+        };
+        let selected = vec!["sample.bundle".to_owned()];
+        let pins = BTreeMap::from([("sample.bundle".to_owned(), digest)]);
+        let request = DownloadRequest {
+            root: root.path(),
+            platform: Platform::Windows,
+            data_version: "1.3.21",
+            current: &index,
+            previous: None,
+            requested: &selected,
+            trusted: &pins,
+            max_files: 1,
+            max_bytes: 100,
+        };
+        assert!(matches!(
+            download_extract_and_activate(&request, &"b".repeat(64)),
+            Err(DownloadError::ExtractionInvalid)
+        ));
+        assert_eq!(crate::version_state::read(root.path()).unwrap(), None);
     }
 
     #[test]
