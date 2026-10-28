@@ -105,7 +105,6 @@ pub fn verify(root: &Path) -> Result<Option<OfflineStatus>, OfflineError> {
     }))
 }
 
-
 fn verified_digests(
     root: &Path,
     snapshot: &Snapshot,
@@ -131,7 +130,10 @@ fn verified_digests(
             seen.insert(key, (bundle, digest));
         }
     }
-    Ok(seen.into_iter().map(|(name, (_, sha))| (name, sha)).collect())
+    Ok(seen
+        .into_iter()
+        .map(|(name, (_, sha))| (name, sha))
+        .collect())
 }
 
 fn check_root(root: &Path) -> Result<(), OfflineError> {
