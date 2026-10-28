@@ -1,7 +1,10 @@
 //! 平台應用傳入自己的私有資料目錄，核心建立不含遊戲素材的快取子目錄。
 //! Windows 由 Tauri 應用提供 AppData；macOS 提供 Application Support；
 //! Android 由 Context.getFilesDir() 提供。此模組不推測平台私有路徑。
-use std::{fs, io, path::{Path, PathBuf}};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 pub use wlre_core_observability::ErrorCode as StorageError;
 
 const SUBDIR: &str = "wlre-resource-cache";
@@ -37,7 +40,8 @@ impl CacheLocation {
             if fs::symlink_metadata(&root)
                 .map_err(|_| StorageError::StorageFailure)?
                 .permissions()
-                .mode() & 0o077
+                .mode()
+                & 0o077
                 != 0
             {
                 return Err(StorageError::CacheInvalidInput);
