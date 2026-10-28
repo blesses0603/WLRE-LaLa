@@ -22,6 +22,8 @@ pub enum ErrorCode {
     CacheInvalidInput,
     CacheIntegrityFailure,
     CacheTooLarge,
+    VersionMappingUnknown,
+    VersionMappingAmbiguous,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
