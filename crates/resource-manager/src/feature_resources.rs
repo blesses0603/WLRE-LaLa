@@ -55,10 +55,7 @@ impl FeatureCatalog {
         let value = match &binding.key {
             AssetKey::Address(value) | AssetKey::AssetPath(value) => value,
         };
-        if value.is_empty()
-            || value.len() > 1024
-            || value.chars().any(char::is_control)
-        {
+        if value.is_empty() || value.len() > 1024 || value.chars().any(char::is_control) {
             return Err(FeatureError::IndexInvalidEntry);
         }
         let entries = self.entries.entry(feature).or_default();
@@ -238,16 +235,20 @@ pub fn ensure_with_progress(
         .build()
         .map_err(|_| FeatureError::RequestFailed)?;
     let total = selected.len();
-    let (downloaded, reused) = fetch_selected(&selected, |bundle| {
-        Ok(official_cache::fetch(
-            &client,
-            request.root,
-            request.platform,
-            &first.data_version,
-            bundle,
-        )?
-        .downloaded)
-    }, on_progress)?;
+    let (downloaded, reused) = fetch_selected(
+        &selected,
+        |bundle| {
+            Ok(official_cache::fetch(
+                &client,
+                request.root,
+                request.platform,
+                &first.data_version,
+                bundle,
+            )?
+            .downloaded)
+        },
+        on_progress,
+    )?;
     let last = manifest_snapshot::fetch(request.platform, request.executable)?;
     if first.data_version != last.data_version
         || first.announced_executable != last.announced_executable
@@ -371,8 +372,14 @@ mod tests {
     #[test]
     fn selects_only_feature_and_its_cyclic_dependencies() {
         let snapshot = snapshot();
-        let selected =
-            select(&snapshot, &catalog(), &BTreeSet::from([Feature::Map]), 3, 30).unwrap();
+        let selected = select(
+            &snapshot,
+            &catalog(),
+            &BTreeSet::from([Feature::Map]),
+            3,
+            30,
+        )
+        .unwrap();
         assert_eq!(selected.len(), 2);
         assert!(selected.iter().any(|b| b.bundle_name == "map.bundle"));
         assert!(selected.iter().any(|b| b.bundle_name == "shared.bundle"));
@@ -399,8 +406,14 @@ mod tests {
         let snapshot = snapshot();
         let mut catalog = catalog();
         assert_eq!(
-            select(&snapshot, &catalog, &BTreeSet::from([Feature::Pet]), 10, 100)
-                .unwrap_err(),
+            select(
+                &snapshot,
+                &catalog,
+                &BTreeSet::from([Feature::Pet]),
+                10,
+                100
+            )
+            .unwrap_err(),
             FeatureError::ResourceNotFound
         );
         catalog
@@ -413,15 +426,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            select(&snapshot, &catalog, &BTreeSet::from([Feature::Pet]), 10, 100)
-                .unwrap_err(),
+            select(
+                &snapshot,
+                &catalog,
+                &BTreeSet::from([Feature::Pet]),
+                10,
+                100
+            )
+            .unwrap_err(),
             FeatureError::ResourceNotFound
         );
         let mut duplicated = snapshot();
-        duplicated.data.asset_list.push(duplicated.data.asset_list[0].clone());
+        duplicated
+            .data
+            .asset_list
+            .push(duplicated.data.asset_list[0].clone());
         assert_eq!(
-            select(&duplicated, &catalog, &BTreeSet::from([Feature::Map]), 10, 100)
-                .unwrap_err(),
+            select(
+                &duplicated,
+                &catalog,
+                &BTreeSet::from([Feature::Map]),
+                10,
+                100
+            )
+            .unwrap_err(),
             FeatureError::IndexDuplicatePath
         );
     }
@@ -430,20 +458,38 @@ mod tests {
     fn checks_all_quota_and_encryption_before_download() {
         let snapshot = snapshot();
         assert_eq!(
-            select(&snapshot, &catalog(), &BTreeSet::from([Feature::Map]), 1, 30)
-                .unwrap_err(),
+            select(
+                &snapshot,
+                &catalog(),
+                &BTreeSet::from([Feature::Map]),
+                1,
+                30
+            )
+            .unwrap_err(),
             FeatureError::DownloadQuotaExceeded
         );
         assert_eq!(
-            select(&snapshot, &catalog(), &BTreeSet::from([Feature::Map]), 3, 10)
-                .unwrap_err(),
+            select(
+                &snapshot,
+                &catalog(),
+                &BTreeSet::from([Feature::Map]),
+                3,
+                10
+            )
+            .unwrap_err(),
             FeatureError::DownloadQuotaExceeded
         );
         let mut protected = snapshot();
         protected.data.bundle_list[1].encrypted = true;
         assert_eq!(
-            select(&protected, &catalog(), &BTreeSet::from([Feature::Map]), 3, 30)
-                .unwrap_err(),
+            select(
+                &protected,
+                &catalog(),
+                &BTreeSet::from([Feature::Map]),
+                3,
+                30
+            )
+            .unwrap_err(),
             FeatureError::UnsupportedEncryption
         );
     }
@@ -451,8 +497,14 @@ mod tests {
     #[test]
     fn uses_cache_and_reports_only_selected_downloads() {
         let snapshot = snapshot();
-        let selected = select(&snapshot, &catalog(), &BTreeSet::from([Feature::Map]), 3, 30)
-            .unwrap();
+        let selected = select(
+            &snapshot,
+            &catalog(),
+            &BTreeSet::from([Feature::Map]),
+            3,
+            30,
+        )
+        .unwrap();
         let mut calls = 0;
         let mut progress = Vec::new();
         let (downloaded, reused) = fetch_selected(
