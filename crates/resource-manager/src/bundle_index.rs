@@ -152,6 +152,15 @@ mod tests {
     fn encode(value: &Value) -> Vec<u8> {
         serde_json::to_vec(value).unwrap()
     }
+    /// 僅手動或指定驗收工作執行，對固定官方端點發出一次請求。
+    #[test]
+    #[ignore = "需要連線至官方端點；結果僅反映當時資料"]
+    fn official_observed_index_smoke() {
+        let index = fetch_observed_index().expect("官方索引讀取或解析失敗");
+        assert_eq!(index.file_version, "2.2.5");
+        assert!(!index.bundle_list.is_empty());
+    }
+
     #[test]
     fn fetches_synthetic_index_from_local_mock() {
         use std::io::{Read, Write};
