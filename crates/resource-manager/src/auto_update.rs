@@ -2,8 +2,7 @@
 use crate::{
     bundle_index::Bundle,
     manifest_snapshot::{self, Snapshot},
-    official_cache,
-    offline_cache,
+    official_cache, offline_cache,
     scheduler::Scheduler,
     version_map::Platform,
 };
