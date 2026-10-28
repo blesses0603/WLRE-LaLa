@@ -2,6 +2,7 @@
 use crate::{
     bundle_index::{Bundle, BundleIndex, Package},
     manifest_snapshot::{self, Snapshot},
+    offline_cache,
     official_cache,
     version_map::Platform,
 };
@@ -257,6 +258,8 @@ pub fn ensure_with_progress(
     {
         return Err(FeatureError::SnapshotChanged);
     }
+    // 只記錄此功能實際用過且已驗證的封包，避免把整個資源庫誤當作已下載。
+    offline_cache::save_selected(request.root, &last, &selected)?;
     Ok(FeatureResult {
         selected: total,
         downloaded,
