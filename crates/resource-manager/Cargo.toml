@@ -1,0 +1,7 @@
+[package]
+name = "wlre-resource-manager"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wlre-core-observability = { path = "../core-observability" }

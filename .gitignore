@@ -1,0 +1,13 @@
+/target/
+# 本機下載及快取不可提交
+/local-resources/
+/cache/
+
+# 本機設定及常見憑證檔案
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
