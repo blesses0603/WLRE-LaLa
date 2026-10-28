@@ -31,3 +31,6 @@ jobs:
       # 唯讀單一官方封包，驗證容器格式；不保存內容。
       - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.3.0'
         run: cargo test -p wlre-resource-manager official_unity_container_smoke -- --ignored
+      # 單一封包下載及快取驗收，資料僅存工作執行器暫存目錄。
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.3.0'
+        run: cargo test -p wlre-resource-manager official_bundle_cache_smoke -- --ignored

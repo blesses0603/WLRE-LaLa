@@ -56,7 +56,7 @@ pub fn fetch(platform: Platform, executable: &str) -> Result<String, VersionErro
     select(&bytes, executable)
 }
 
-fn valid_version(value: &str) -> bool {
+pub(crate) fn valid_version(value: &str) -> bool {
     value.len() <= 32
         && value.split('.').count() == 3
         && value
@@ -73,12 +73,22 @@ pub fn select(bytes: &[u8], executable: &str) -> Result<String, VersionError> {
     if !valid_version(executable) {
         return Err(VersionError::IndexInvalidEntry);
     }
+    let versions = parse_mapping(bytes)?;
+    versions
+        .get(executable)
+        .cloned()
+        .ok_or(VersionError::VersionMappingUnknown)
+}
+
+fn parse_mapping(bytes: &[u8]) -> Result<BTreeMap<String, String>, VersionError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(VersionError::IndexTooLarge);
+    }
     let text = std::str::from_utf8(bytes).map_err(|_| VersionError::IndexInvalidEncoding)?;
     let mut trimmed = text.trim_end().to_owned();
     if trimmed.ends_with(']') {
         let before = trimmed[..trimmed.len() - 1].trim_end();
         if let Some(prefix) = before.strip_suffix(',') {
-            // 限定陣列最後一個項目是物件，避免將任意不合法輸入修補為有效資料。
             if !prefix.trim_end().ends_with('}') {
                 return Err(VersionError::IndexInvalidEntry);
             }
@@ -99,9 +109,42 @@ pub fn select(bytes: &[u8], executable: &str) -> Result<String, VersionError> {
             return Err(VersionError::VersionMappingAmbiguous);
         }
     }
-    versions
-        .get(executable)
-        .cloned()
+    Ok(versions)
+}
+
+/// 從官方對照中，以三段數字比較選擇最高的 ExeVer 及其對應 DataVer。
+/// 這是專案的選擇政策，不代表已證明官方啟動器內部採用相同規則。
+/// 版本數字不受支援或出現數值相同的不同表示時拒絕；不根據資料夾排序。
+pub fn select_latest(bytes: &[u8]) -> Result<(String, String), VersionError> {
+    let versions = parse_mapping(bytes)?;
+    let mut best: Option<([u32; 3], String, String)> = None;
+    let mut seen = std::collections::BTreeSet::new();
+    for (exe, data) in versions {
+        let mut parts = exe.split('.');
+        let parse = |part: Option<&str>| -> Result<u32, VersionError> {
+            part.ok_or(VersionError::IndexInvalidEntry)?
+                .parse()
+                .map_err(|_| VersionError::IndexInvalidEntry)
+        };
+        let key = [
+            parse(parts.next())?,
+            parse(parts.next())?,
+            parse(parts.next())?,
+        ];
+        if !seen.insert(key) {
+            return Err(VersionError::VersionMappingAmbiguous);
+        }
+        if let Some((old, _, _)) = &best {
+            if &key == old {
+                return Err(VersionError::VersionMappingAmbiguous);
+            }
+            if &key < old {
+                continue;
+            }
+        }
+        best = Some((key, exe, data));
+    }
+    best.map(|(_, exe, data)| (exe, data))
         .ok_or(VersionError::VersionMappingUnknown)
 }
 
@@ -118,6 +161,19 @@ mod tests {
             Err(VersionError::VersionMappingUnknown)
         );
     }
+    #[test]
+    fn chooses_highest_announced_executable_numerically() {
+        let data =
+            br#"[{"ExeVer":"1.9.0","DataVer":"1.3.21"},{"ExeVer":"1.10.0","DataVer":"1.3.22"},]"#;
+        assert_eq!(select_latest(data), Ok(("1.10.0".into(), "1.3.22".into())));
+        let duplicate =
+            br#"[{"ExeVer":"1.01.0","DataVer":"1.3.21"},{"ExeVer":"1.1.0","DataVer":"1.3.22"}]"#;
+        assert_eq!(
+            select_latest(duplicate),
+            Err(VersionError::VersionMappingAmbiguous)
+        );
+    }
+
     #[test]
     fn rejects_ambiguous_or_unsafe_mappings() {
         let dup =

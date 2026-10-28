@@ -10,7 +10,7 @@ pub use wlre_core_observability::ErrorCode as CacheError;
 
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
 
-/// 僅支援已觀察的版本及平台組合；預期 SHA-256 須來自可信來源。
+/// 依官方對照組成已觀察的目錄結構；預期 SHA-256 須來自可信來源。
 pub(crate) fn download_observed_bundle(
     root: &Path,
     platform: crate::version_map::Platform,
@@ -24,10 +24,12 @@ pub(crate) fn download_observed_bundle(
     if size > MAX_BYTES {
         return Err(CacheError::CacheTooLarge);
     }
-    let dir = match (platform, data_version) {
-        (crate::version_map::Platform::Windows, "1.3.21") => "ResourcesPC",
-        (crate::version_map::Platform::Android, "1.3.21") => "ResourcesAndroid",
-        _ => return Err(CacheError::VersionMappingUnknown),
+    if !crate::version_map::valid_version(data_version) {
+        return Err(CacheError::VersionMappingUnknown);
+    }
+    let dir = match platform {
+        crate::version_map::Platform::Windows => "ResourcesPC",
+        crate::version_map::Platform::Android => "ResourcesAndroid",
     };
     let client = Client::builder()
         .redirect(Policy::none())

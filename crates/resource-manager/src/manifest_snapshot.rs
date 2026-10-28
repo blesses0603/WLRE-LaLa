@@ -10,6 +10,7 @@ const MANIFEST_LIMIT: usize = 16 * 1024 * 1024;
 #[derive(Debug)]
 pub struct Snapshot {
     pub data_version: String,
+    pub announced_executable: String,
     pub data_sha256: String,
     pub main_sha256: String,
     pub data: BundleIndex,
@@ -46,7 +47,7 @@ impl Source for OfficialSource {
 }
 
 /// 查詢指定平台和執行檔版本，下載兩份官方清單並再次確認版本對照。
-/// 僅支援已觀察過的 1.3.21 目錄；無重導向、自動重試或資源封包下載。
+/// 依官方對照值組成已觀察的目錄結構；未知或不相容格式會拒絕。
 /// 須由呼叫端負責排程及節流；同步操作。CRC 不驗證內容是否遭惡意替換。
 pub fn fetch(platform: version_map::Platform, executable: &str) -> Result<Snapshot, SnapshotError> {
     let client = reqwest::blocking::Client::builder()
@@ -81,10 +82,11 @@ fn fetch_from(
         version_map::Platform::Windows => ("ResourcePath_PC.dat", "ResourcesPC"),
         version_map::Platform::Android => ("ResourcePath_ANDROID.dat", "ResourcesAndroid"),
     };
-    let data_version = version_map::select(&source.get(map, 16 * 1024)?, executable)?;
-    if data_version != "1.3.21" {
-        return Err(SnapshotError::VersionMappingUnknown);
+    let initial_mapping = source.get(map, 16 * 1024)?;
+    if !version_map::valid_version(executable) {
+        return Err(SnapshotError::IndexInvalidEntry);
     }
+    let (announced_executable, data_version) = version_map::select_latest(&initial_mapping)?;
     let root = format!("{data_version}/{directory}/AssetBundle/");
     let revision = |name: &str| text(source.get(&format!("{root}{name}.version"), 128)?);
     let data_revision = revision("DataPackage")?;
@@ -98,10 +100,12 @@ fn fetch_from(
     let main = binary_manifest::parse(&main_bytes, &main_hash, "MainPackage", &main_revision)?;
     let final_data = revision("DataPackage")?;
     let final_main = revision("MainPackage")?;
-    let final_version = version_map::select(&source.get(map, 16 * 1024)?, executable)?;
+    let final_mapping = source.get(map, 16 * 1024)?;
+    let (final_executable, final_version) = version_map::select_latest(&final_mapping)?;
     let final_data_hash = hash("DataPackage")?;
     let final_main_hash = hash("MainPackage")?;
     if data_version != final_version
+        || announced_executable != final_executable
         || data_revision != final_data
         || main_revision != final_main
         || !data_hash.eq_ignore_ascii_case(&final_data_hash)
@@ -112,6 +116,7 @@ fn fetch_from(
     use sha2::{Digest, Sha256};
     Ok(Snapshot {
         data_version,
+        announced_executable,
         data_sha256: format!("{:x}", Sha256::digest(&data_bytes)),
         main_sha256: format!("{:x}", Sha256::digest(&main_bytes)),
         data,
@@ -214,6 +219,30 @@ mod tests {
         assert_eq!(result.main.package_name, "MainPackage");
         assert_eq!(source.versions.get(), 4);
     }
+    #[test]
+    fn follows_new_version_announced_by_official_mapping() {
+        struct NewVersion(Mock);
+        impl Source for NewVersion {
+            fn get(&self, path: &str, limit: usize) -> Result<Vec<u8>, SnapshotError> {
+                if path.ends_with(".dat") {
+                    return Ok(br#"[{"ExeVer":"1.3.0","DataVer":"1.3.21"},{"ExeVer":"1.4.0","DataVer":"1.3.22"},]"#.to_vec());
+                }
+                if !path.starts_with("1.3.22/") {
+                    return Err(SnapshotError::UnexpectedResponse);
+                }
+                self.0.get(path, limit)
+            }
+        }
+        let source = NewVersion(Mock {
+            change: false,
+            corrupt: false,
+            versions: Cell::new(0),
+        });
+        let result = fetch_from(&source, version_map::Platform::Windows, "1.3.0").unwrap();
+        assert_eq!(result.data_version, "1.3.22");
+        assert_eq!(result.announced_executable, "1.4.0");
+    }
+
     #[test]
     fn refuses_mixed_versions_and_corrupt_manifest() {
         let source = Mock {

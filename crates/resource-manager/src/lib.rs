@@ -2,9 +2,11 @@
 
 use std::collections::BTreeMap;
 
+pub mod auto_update;
 pub mod binary_manifest;
 pub mod bundle_index;
 pub mod manifest_snapshot;
+pub mod official_cache;
 pub mod official_probe;
 pub mod scheduler;
 pub mod script_index;

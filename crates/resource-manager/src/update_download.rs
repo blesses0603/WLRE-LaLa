@@ -89,7 +89,7 @@ fn download_and_extract(
 
 /// 依官方版本對照取得最新觀察的兩份清單，下載及提取後再次查詢確認未變動。
 /// 摘要需由呼叫端以可信方式提供；不保存或切換版本狀態，也不啟用舊版本。
-/// 只支援已觀察的平台與資料版本；版本未知、來源失敗或期間變更即回報錯誤。
+/// 依官方對照選擇資料版本；未知格式、來源失敗或期間變更即回報錯誤。
 pub struct LatestRequest<'a> {
     pub root: &'a Path,
     pub platform: Platform,
@@ -129,6 +129,7 @@ fn confirm_same_observation(
     latest: &crate::manifest_snapshot::Snapshot,
 ) -> Result<(), DownloadError> {
     if first.data_version != latest.data_version
+        || first.announced_executable != latest.announced_executable
         || first.data_sha256 != latest.data_sha256
         || first.main_sha256 != latest.main_sha256
     {
@@ -242,6 +243,7 @@ mod tests {
         }
         let make = |data: &str, main: &str| Snapshot {
             data_version: "1.3.21".into(),
+            announced_executable: "1.3.0".into(),
             data_sha256: data.into(),
             main_sha256: main.into(),
             data: index("DataPackage"),

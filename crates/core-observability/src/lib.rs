@@ -33,6 +33,7 @@ pub enum ErrorCode {
     ScheduleInvalid,
     ExtractionInvalid,
     ExtractionLimitExceeded,
+    UpdateCancelled,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

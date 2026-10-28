@@ -59,7 +59,7 @@ pub enum Package {
 }
 
 /// 根據官方對照的精確執行檔版本讀取索引。
-/// 僅支援已調查的資源版本 1.3.21；其他版本回報未知，不依目錄排序推定。
+/// 依官方對照資料組成目錄；不可用目錄排序推定最新版本。
 /// 回傳結果不表示封包已下載、完整性已驗證或索引與二進位清單一致。
 pub fn fetch_current(
     platform: crate::version_map::Platform,
@@ -89,7 +89,7 @@ fn observed_index_url(
     version: &str,
     package: Package,
 ) -> Result<String, IndexError> {
-    if version != "1.3.21" {
+    if !crate::version_map::valid_version(version) {
         return Err(IndexError::VersionMappingUnknown);
     }
     let platform_dir = match platform {
@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn selects_only_observed_platform_and_version_paths() {
+    fn constructs_validated_official_paths() {
         use crate::version_map::Platform;
         assert_eq!(observed_index_url(Platform::Windows,"1.3.21",Package::Main).unwrap(), "https://wlreftpsrc.chinesegamer.net/WLN/TW/1.3.21/ResourcesPC/AssetBundle/MainPackage.json");
         assert!(
@@ -266,9 +266,10 @@ mod tests {
                 .unwrap()
                 .contains("/ResourcesAndroid/AssetBundle/DataPackage.json")
         );
-        assert_eq!(
-            observed_index_url(Platform::Windows, "1.3.22", Package::Data),
-            Err(IndexError::VersionMappingUnknown)
+        assert!(
+            observed_index_url(Platform::Windows, "1.3.22", Package::Data)
+                .unwrap()
+                .contains("/1.3.22/")
         );
         assert_eq!(
             observed_index_url(Platform::Windows, "../evil", Package::Data),
