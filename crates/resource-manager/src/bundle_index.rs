@@ -52,7 +52,7 @@ const OBSERVED_INDEX_URL: &str =
     "https://wlreftpsrc.chinesegamer.net/WLN/TW/1.3.22/ResourcesPC/AssetBundle/DataPackage.json";
 
 /// 僅包含目前已實際觀察到的資源包種類。
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Package {
     Data,
     Main,
