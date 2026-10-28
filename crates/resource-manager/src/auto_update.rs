@@ -1,13 +1,14 @@
 //! 在應用程式執行期間，定期查詢官方版本並下載缺少或損毀的資源。
 use crate::{
     bundle_index::Bundle,
+    feature_resources::{self, Feature, FeatureCatalog},
     manifest_snapshot::{self, Snapshot},
     official_cache, offline_cache,
     scheduler::Scheduler,
     version_map::Platform,
 };
 use std::{
-    collections::BTreeMap,
+    collections::BTreeSet,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -21,7 +22,7 @@ pub use wlre_core_observability::ErrorCode as UpdateError;
 const REQUEST_GAP: Duration = Duration::from_millis(200);
 
 /// 呼叫端提供私有可信快取目錄；不得由其他不可信程序同時修改。
-/// 額度計入整份資源清單（包含快取命中），超限時不啟動封包下載。
+/// 預設僅觀察版本，不會批量下載所有封包；只有明確啟用並綁定的功能可更新。
 #[derive(Debug)]
 pub struct Config {
     pub root: PathBuf,
@@ -30,10 +31,12 @@ pub struct Config {
     pub interval: Duration,
     pub max_files: usize,
     pub max_bytes: u64,
+    pub catalog: FeatureCatalog,
+    pub enabled_features: BTreeSet<Feature>,
 }
 
 impl Config {
-    /// 每小時檢查；預設每輪最多 10,000 檔及 8 GiB，平台可依資源及流量限制調整。
+    /// 預設只觀察版本；加入精確功能資產綁定後才會下載相關封包。
     pub fn new(root: PathBuf, platform: Platform, executable: String) -> Self {
         Self {
             root,
@@ -42,7 +45,19 @@ impl Config {
             interval: Duration::from_secs(3600),
             max_files: 10_000,
             max_bytes: 8 * 1024 * 1024 * 1024,
+            catalog: FeatureCatalog::default(),
+            enabled_features: BTreeSet::new(),
         }
+    }
+
+    /// 要求程式持續追蹤特定功能，且此功能已由呼叫端提供官方索引精確綁定。
+    /// 程序執行中的即時功能需求，應使用 feature_resources::ensure_feature。
+    pub fn enable_feature(&mut self, feature: Feature) -> Result<(), UpdateError> {
+        if !self.catalog.has_feature(feature) {
+            return Err(UpdateError::ResourceNotFound);
+        }
+        self.enabled_features.insert(feature);
+        Ok(())
     }
 
     /// 由平台已建立的私有快取位置啟動；適用於桌面與 Android 平台適配層。
@@ -105,7 +120,8 @@ impl From<&Snapshot> for Identity {
     }
 }
 
-/// 前景執行期間運作的背景工作；應用程式關閉後不會自行執行。
+/// 前景執行期間運作的背景工作；預設不下載任何遊戲封包。
+/// 可在啟動前註冊功能進行定期更新；新增功能即時需求使用獨立按需 API。
 /// 停止會在目前清單查詢或單檔請求完成或逾時後生效，並阻止後續封包下載。
 pub struct AutoUpdater {
     stop: Arc<AtomicBool>,
@@ -211,9 +227,6 @@ trait Operations {
         version: &str,
         bundle: &Bundle,
     ) -> Result<bool, UpdateError>;
-    fn completed(&self, _config: &Config, _snapshot: &Snapshot) -> Result<(), UpdateError> {
-        Ok(())
-    }
 }
 struct OfficialOperations<'a> {
     client: &'a reqwest::blocking::Client,
@@ -234,9 +247,6 @@ impl Operations for OfficialOperations<'_> {
         )
     }
 
-    fn completed(&self, config: &Config, snapshot: &Snapshot) -> Result<(), UpdateError> {
-        offline_cache::save(&config.root, snapshot)
-    }
 }
 
 fn run_cycle(
@@ -262,7 +272,13 @@ fn run_cycle(
         changed,
         first_observation: previous.is_none(),
     });
-    let bundles = prepare_bundles(&snapshot, config.max_files, config.max_bytes)?;
+    let bundles = feature_resources::select(
+        &snapshot,
+        &config.catalog,
+        &config.enabled_features,
+        config.max_files,
+        config.max_bytes,
+    )?;
     let total = bundles.len();
     let mut downloaded = 0usize;
     for (index, bundle) in bundles.iter().enumerate() {
@@ -291,59 +307,10 @@ fn run_cycle(
     if Identity::from(&latest) != identity {
         return Err(UpdateError::SnapshotChanged);
     }
-    operations.completed(config, &latest)?;
-    let _ = tx.send(Event::Completed { total, downloaded });
+    if !config.enabled_features.is_empty() {
+        let _ = tx.send(Event::Completed { total, downloaded });
+    }
     Ok(identity)
-}
-
-pub(crate) fn prepare_bundles(
-    snapshot: &Snapshot,
-    max_files: usize,
-    max_bytes: u64,
-) -> Result<Vec<&Bundle>, UpdateError> {
-    let mut seen: BTreeMap<String, &Bundle> = BTreeMap::new();
-    let mut bundles: Vec<&Bundle> = Vec::new();
-    // 整包模式會下載兩份清單的所有封包；循環依賴不影響逐檔下載。
-    // 清單的依賴編號仍須落在同一套件範圍內，全部下載後才回報完成。
-    for index in [&snapshot.data, &snapshot.main] {
-        for bundle in &index.bundle_list {
-            if bundle.encrypted {
-                return Err(UpdateError::UnsupportedEncryption);
-            }
-            if bundle
-                .depend_ids
-                .iter()
-                .any(|&id| id >= index.bundle_list.len())
-            {
-                return Err(UpdateError::IndexInvalidEntry);
-            }
-            crate::verified_cache::validate_name(&bundle.bundle_name)?;
-            official_cache::check_input(bundle)?;
-            if let Some(old) = seen.get(&bundle.bundle_name) {
-                if old.file_hash != bundle.file_hash
-                    || old.file_crc != bundle.file_crc
-                    || old.file_size != bundle.file_size
-                {
-                    return Err(UpdateError::IndexDuplicatePath);
-                }
-            } else {
-                seen.insert(bundle.bundle_name.clone(), bundle);
-                bundles.push(bundle);
-            }
-        }
-    }
-    let total = bundles.len();
-    if total > max_files {
-        return Err(UpdateError::DownloadQuotaExceeded);
-    }
-    let size = bundles.iter().try_fold(0u64, |sum, b| {
-        sum.checked_add(b.file_size)
-            .ok_or(UpdateError::DownloadQuotaExceeded)
-    })?;
-    if size > max_bytes {
-        return Err(UpdateError::DownloadQuotaExceeded);
-    }
-    Ok(bundles)
 }
 
 #[cfg(test)]
@@ -382,7 +349,13 @@ mod tests {
                     file_version: "2.2.5".into(),
                     package_name: package.into(),
                     package_version: format!("rev_{version}"),
-                    asset_list: vec![],
+                    asset_list: vec![crate::bundle_index::Asset {
+                        address: format!("{package}-needed"),
+                        asset_path: format!("Assets/{package}"),
+                        asset_guid: String::new(),
+                        asset_tags: vec![],
+                        bundle_id: 0,
+                    }],
                     bundle_list: vec![Bundle {
                         bundle_name: format!("{package}.bundle"),
                         unity_crc: 0,
@@ -418,9 +391,14 @@ mod tests {
         }
     }
     #[test]
-    fn detects_new_official_version_and_automatically_downloads_both_packages() {
+    fn tracks_changes_and_downloads_only_enabled_feature_bundles() {
         let root = tempfile::tempdir().unwrap();
-        let config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
+        let mut config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
+        config.catalog.bind(Feature::Map, crate::feature_resources::AssetBinding {
+            package: crate::bundle_index::Package::Data,
+            key: crate::feature_resources::AssetKey::Address("DataPackage-needed".into()),
+        }).unwrap();
+        config.enable_feature(Feature::Map).unwrap();
         let ops = MockOperations {
             version: std::cell::Cell::new(21),
             downloads: std::cell::RefCell::new(Vec::new()),
@@ -432,7 +410,8 @@ mod tests {
         let first = run_cycle(&config, &ops, &event_tx, &wake_rx, &stop, None).unwrap();
         ops.version.set(22);
         run_cycle(&config, &ops, &event_tx, &wake_rx, &stop, Some(&first)).unwrap();
-        assert_eq!(ops.downloads.borrow().len(), 4);
+        assert_eq!(ops.downloads.borrow().len(), 2);
+        assert!(ops.downloads.borrow().iter().all(|name| name.contains("DataPackage")));
         assert!(ops
             .downloads
             .borrow()
@@ -441,9 +420,14 @@ mod tests {
         assert!(event_rx.try_iter().any(|event|matches!(event,Event::VersionObserved {data_version,changed:true,..} if data_version=="1.3.22")));
     }
     #[test]
-    fn full_package_download_does_not_reject_cyclic_dependency_graph() {
+    fn selected_feature_allows_cyclic_dependency_graph() {
         let root = tempfile::tempdir().unwrap();
-        let config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
+        let mut config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
+        config.catalog.bind(Feature::Map, crate::feature_resources::AssetBinding {
+            package: crate::bundle_index::Package::Data,
+            key: crate::feature_resources::AssetKey::Address("DataPackage-needed".into()),
+        }).unwrap();
+        config.enable_feature(Feature::Map).unwrap();
         let ops = MockOperations {
             version: std::cell::Cell::new(21),
             downloads: std::cell::RefCell::new(Vec::new()),
@@ -453,13 +437,23 @@ mod tests {
         let (_wake_tx, wake_rx) = mpsc::channel();
         let stop = AtomicBool::new(false);
         assert!(run_cycle(&config, &ops, &tx, &wake_rx, &stop, None).is_ok());
-        assert_eq!(ops.downloads.borrow().len(), 2);
+        assert_eq!(ops.downloads.borrow().len(), 1);
     }
 
     #[test]
     fn refuses_quota_before_downloading_any_bundle() {
         let root = tempfile::tempdir().unwrap();
         let mut config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
+        config.catalog.bind(Feature::Map, crate::feature_resources::AssetBinding {
+            package: crate::bundle_index::Package::Data,
+            key: crate::feature_resources::AssetKey::Address("DataPackage-needed".into()),
+        }).unwrap();
+        config.catalog.bind(Feature::Battle, crate::feature_resources::AssetBinding {
+            package: crate::bundle_index::Package::Main,
+            key: crate::feature_resources::AssetKey::Address("MainPackage-needed".into()),
+        }).unwrap();
+        config.enable_feature(Feature::Map).unwrap();
+        config.enable_feature(Feature::Battle).unwrap();
         config.max_files = 1;
         let ops = MockOperations {
             version: std::cell::Cell::new(21),
@@ -474,6 +468,23 @@ mod tests {
             Err(UpdateError::DownloadQuotaExceeded)
         ));
         assert!(ops.downloads.borrow().is_empty());
+    }
+
+    #[test]
+    fn default_configuration_only_observes_versions_without_downloads() {
+        let root = tempfile::tempdir().unwrap();
+        let config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
+        let ops = MockOperations {
+            version: std::cell::Cell::new(21),
+            downloads: std::cell::RefCell::new(Vec::new()),
+            cyclic: false,
+        };
+        let (events, receiver) = mpsc::channel();
+        let (_wake_tx, wake_rx) = mpsc::channel();
+        let stop = AtomicBool::new(false);
+        run_cycle(&config, &ops, &events, &wake_rx, &stop, None).unwrap();
+        assert!(ops.downloads.borrow().is_empty());
+        assert!(receiver.try_iter().any(|event| matches!(event, Event::VersionObserved { .. })));
     }
 
     #[test]
