@@ -1,4 +1,4 @@
-//! 保存最近一次完整下載驗證的官方索引；離線僅能辨識「上次已驗證」，不代表最新版本。
+//! 僅保存 LaLa 實際使用且已驗證的官方資源，不要求下載完整資源庫。
 use crate::{
     bundle_index::{self, BundleIndex},
     manifest_snapshot::Snapshot,
@@ -6,7 +6,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{Read, Write},
     path::Path,
@@ -15,14 +15,16 @@ pub use wlre_core_observability::ErrorCode as OfflineError;
 
 const CACHE_FILE: &str = "last-verified-snapshot.json";
 const MAX_INDEX_BYTES: u64 = 64 * 1024 * 1024;
-const SCHEMA_VERSION: u8 = 2;
+const SCHEMA_VERSION: u8 = 3;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Stored {
     schema_version: u8,
     snapshot: Snapshot,
-    /// 每個封包在最後一次成功更新時的本機 SHA-256；不是官方簽章。
+    /// 只記錄真正因功能而下載／驗證的封包名稱，不能宣稱其餘素材已取得。
+    selected_names: Vec<String>,
+    /// 每個已選封包最後一次成功更新時的本機 SHA-256；不是官方簽章。
     bundle_sha256: BTreeMap<String, String>,
 }
 
@@ -33,15 +35,48 @@ pub struct OfflineStatus {
     pub bundle_count: usize,
 }
 
-/// 下載及兩次官方快照一致性確認通過後，才呼叫此函式。
-/// 快取根目錄須私有且只有一個寫入者；暫存檔與快取不放入 Git。
+/// 舊有完整清單驗證入口；只供確實需要全部封包的呼叫端使用。
+/// LaLa 應優先使用 save_selected，避免要求整包下載。
 pub fn save(root: &Path, snapshot: &Snapshot) -> Result<(), OfflineError> {
+    let all = snapshot
+        .data
+        .bundle_list
+        .iter()
+        .chain(snapshot.main.bundle_list.iter())
+        .collect::<Vec<_>>();
+    save_selected(root, snapshot, &all)
+}
+
+/// 保存本輪 LaLa 功能實際使用的官方封包；同一官方快照下合併先前使用的封包。
+/// 所有選定檔案必須先完成本機檢驗，失敗不覆蓋原本的快照。
+pub fn save_selected(
+    root: &Path,
+    snapshot: &Snapshot,
+    selected: &[&crate::bundle_index::Bundle],
+) -> Result<(), OfflineError> {
     check_root(root)?;
     validate_snapshot(snapshot)?;
-    let bundle_sha256 = verified_digests(root, snapshot)?;
+    let mut names: BTreeSet<String> = selected
+        .iter()
+        .map(|bundle| bundle.bundle_name.to_ascii_lowercase())
+        .collect();
+    if names.is_empty() {
+        return Err(OfflineError::ResourceNotFound);
+    }
+    if let Some(previous) = read_stored(root)? {
+        if previous.snapshot.data_version == snapshot.data_version
+            && previous.snapshot.announced_executable == snapshot.announced_executable
+            && previous.snapshot.data_sha256 == snapshot.data_sha256
+            && previous.snapshot.main_sha256 == snapshot.main_sha256
+        {
+            names.extend(previous.selected_names);
+        }
+    }
+    let bundle_sha256 = verified_digests(root, snapshot, &names)?;
     let data = serde_json::to_vec(&Stored {
         schema_version: SCHEMA_VERSION,
         snapshot: snapshot.clone(),
+        selected_names: names.into_iter().collect(),
         bundle_sha256,
     })
     .map_err(|_| OfflineError::StorageFailure)?;
@@ -64,9 +99,27 @@ pub fn save(root: &Path, snapshot: &Snapshot) -> Result<(), OfflineError> {
     Ok(())
 }
 
-/// 脫機時檢查上一次成功清單的每個封包是否仍存在且符合大小與官方 MD5／CRC32。
-/// 清單是本機快取而非簽章，回傳值不得顯示成「已是官方最新版」。
+/// 離線只檢查最近一次成功選擇的封包；不推定官方目前版本或其餘素材。
 pub fn verify(root: &Path) -> Result<Option<OfflineStatus>, OfflineError> {
+    let stored = match read_stored(root)? {
+        Some(stored) => stored,
+        None => return Ok(None),
+    };
+    let names: BTreeSet<_> = stored.selected_names.iter().cloned().collect();
+    if names.len() != stored.selected_names.len() || names.is_empty() {
+        return Err(OfflineError::IndexInvalidEntry);
+    }
+    let actual = verified_digests(root, &stored.snapshot, &names)?;
+    if stored.bundle_sha256 != actual {
+        return Err(OfflineError::CacheIntegrityFailure);
+    }
+    Ok(Some(OfflineStatus {
+        data_version: stored.snapshot.data_version,
+        bundle_count: actual.len(),
+    }))
+}
+
+fn read_stored(root: &Path) -> Result<Option<Stored>, OfflineError> {
     check_root(root)?;
     let path = root.join(CACHE_FILE);
     let meta = match fs::symlink_metadata(&path) {
@@ -95,30 +148,27 @@ pub fn verify(root: &Path) -> Result<Option<OfflineStatus>, OfflineError> {
         return Err(OfflineError::IndexUnsupportedVersion);
     }
     validate_snapshot(&stored.snapshot)?;
-    let actual = verified_digests(root, &stored.snapshot)?;
-    if stored.bundle_sha256 != actual {
-        return Err(OfflineError::CacheIntegrityFailure);
-    }
-    Ok(Some(OfflineStatus {
-        data_version: stored.snapshot.data_version,
-        bundle_count: actual.len(),
-    }))
+    Ok(Some(stored))
 }
 
 fn verified_digests(
     root: &Path,
     snapshot: &Snapshot,
+    names: &BTreeSet<String>,
 ) -> Result<BTreeMap<String, String>, OfflineError> {
     let mut seen: BTreeMap<String, (&crate::bundle_index::Bundle, String)> = BTreeMap::new();
     for index in [&snapshot.data, &snapshot.main] {
         for bundle in &index.bundle_list {
+            let key = bundle.bundle_name.to_ascii_lowercase();
+            if !names.contains(&key) {
+                continue;
+            }
             if bundle.encrypted {
                 return Err(OfflineError::UnsupportedEncryption);
             }
-            let key = bundle.bundle_name.to_ascii_lowercase();
             if let Some((previous, _)) = seen.get(&key) {
-                if previous.file_hash != bundle.file_hash
-                    || previous.file_crc != bundle.file_crc
+                if !previous.file_hash.eq_ignore_ascii_case(&bundle.file_hash)
+                    || !previous.file_crc.eq_ignore_ascii_case(&bundle.file_crc)
                     || previous.file_size != bundle.file_size
                 {
                     return Err(OfflineError::IndexDuplicatePath);
@@ -129,6 +179,9 @@ fn verified_digests(
                 .ok_or(OfflineError::CacheIntegrityFailure)?;
             seen.insert(key, (bundle, digest));
         }
+    }
+    if names.len() != seen.len() {
+        return Err(OfflineError::ResourceNotFound);
     }
     Ok(seen
         .into_iter()
@@ -300,6 +353,51 @@ mod tests {
             Some(OfflineStatus {
                 data_version: "1.3.21".into(),
                 bundle_count: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn saves_only_selected_bundles_and_merges_another_feature() {
+        let dir = tempfile::tempdir().unwrap();
+        let value = snapshot();
+        let data = &value.data.bundle_list[0];
+        let main = &value.main.bundle_list[0];
+        write_bundle(dir.path(), data, b"offline test");
+        save_selected(dir.path(), &value, &[data]).unwrap();
+        assert_eq!(
+            verify(dir.path()).unwrap(),
+            Some(OfflineStatus {
+                data_version: "1.3.21".into(),
+                bundle_count: 1,
+            })
+        );
+        write_bundle(dir.path(), main, b"offline main");
+        save_selected(dir.path(), &value, &[main]).unwrap();
+        assert_eq!(
+            verify(dir.path()).unwrap(),
+            Some(OfflineStatus {
+                data_version: "1.3.21".into(),
+                bundle_count: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn newer_version_does_not_require_unrequested_older_assets() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = snapshot();
+        write_bundle(dir.path(), &old.data.bundle_list[0], b"offline test");
+        save_selected(dir.path(), &old, &[&old.data.bundle_list[0]]).unwrap();
+        let mut next = snapshot();
+        next.data_version = "1.3.22".into();
+        write_bundle(dir.path(), &next.main.bundle_list[0], b"offline main");
+        save_selected(dir.path(), &next, &[&next.main.bundle_list[0]]).unwrap();
+        assert_eq!(
+            verify(dir.path()).unwrap(),
+            Some(OfflineStatus {
+                data_version: "1.3.22".into(),
+                bundle_count: 1,
             })
         );
     }
