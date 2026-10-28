@@ -42,6 +42,41 @@ pub fn download_selected(request: &DownloadRequest<'_>) -> Result<Vec<PathBuf>, 
     )
 }
 
+/// 完成所有選定物件的下載並重新驗證後，切換到提供的可信版本識別。
+/// 必須由平台保證私有目錄與單一寫入者；中途失敗不切換狀態。
+/// 身分及每個 SHA-256 都須來自呼叫端的可信來源；不執行安全提取。
+pub fn download_and_activate(
+    request: &DownloadRequest<'_>,
+    identity: &str,
+) -> Result<crate::version_state::State, DownloadError> {
+    let identity = verified_cache::validate_digest(identity)?;
+    let plan = update_plan::plan(request.current, request.previous, request.requested)?;
+    download_selected(request)?;
+    let mut objects = BTreeMap::new();
+    for item in &plan {
+        let sha = verified_cache::validate_digest(
+            request
+                .trusted
+                .get(&item.name)
+                .ok_or(DownloadError::TrustedDigestMissing)?,
+        )?;
+        if objects
+            .insert(sha, item.size)
+            .is_some_and(|previous| previous != item.size)
+        {
+            return Err(DownloadError::VersionStateInvalid);
+        }
+    }
+    let version = crate::version_state::Version {
+        identity,
+        objects: objects
+            .into_iter()
+            .map(|(sha256, size)| crate::version_state::CacheObject { sha256, size })
+            .collect(),
+    };
+    crate::version_state::activate(request.root, version)
+}
+
 fn run_plan<F>(
     plan: &[update_plan::PlannedBundle],
     trusted: &BTreeMap<String, String>,
@@ -90,6 +125,65 @@ mod tests {
             change: Change::Changed,
         }
     }
+    #[test]
+    fn activates_verified_cached_plan_and_refuses_untrusted_update() {
+        use crate::bundle_index::Bundle;
+        use sha2::{Digest, Sha256};
+        let root = tempfile::tempdir().unwrap();
+        let data = b"sample";
+        let digest = format!("{:x}", Sha256::digest(data));
+        std::fs::write(root.path().join(&digest), data).unwrap();
+        let index = BundleIndex {
+            file_version: "2.2.5".into(),
+            package_name: "DataPackage".into(),
+            package_version: "v".into(),
+            asset_list: vec![],
+            bundle_list: vec![Bundle {
+                bundle_name: "sample.bundle".into(),
+                unity_crc: 0,
+                file_hash: "not-used".into(),
+                file_crc: "not-used".into(),
+                file_size: data.len() as u64,
+                encrypted: false,
+                tags: vec![],
+                depend_ids: vec![],
+            }],
+        };
+        let selected = vec!["sample.bundle".to_owned()];
+        let pins = BTreeMap::from([("sample.bundle".to_owned(), digest)]);
+        let request = DownloadRequest {
+            root: root.path(),
+            platform: Platform::Windows,
+            data_version: "1.3.21",
+            current: &index,
+            previous: None,
+            requested: &selected,
+            trusted: &pins,
+            max_files: 1,
+            max_bytes: 100,
+        };
+        let id = "a".repeat(64);
+        let state = download_and_activate(&request, &id).unwrap();
+        assert_eq!(state.current.identity, id);
+        let empty = BTreeMap::new();
+        let bad = DownloadRequest {
+            trusted: &empty,
+            ..request
+        };
+        assert_eq!(
+            download_and_activate(&bad, &"b".repeat(64)),
+            Err(DownloadError::TrustedDigestMissing)
+        );
+        assert_eq!(
+            crate::version_state::read(root.path())
+                .unwrap()
+                .unwrap()
+                .current
+                .identity,
+            id
+        );
+    }
+
     #[test]
     fn validates_all_inputs_before_any_download() {
         let plan = vec![item("a.bundle", 3), item("b.bundle", 4)];
