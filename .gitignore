@@ -1,0 +1,4 @@
+/target/
+# 本機下載及快取不可提交
+/local-resources/
+/cache/
