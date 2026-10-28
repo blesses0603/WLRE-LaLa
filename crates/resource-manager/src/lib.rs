@@ -9,6 +9,7 @@ pub mod manifest_snapshot;
 pub mod official_cache;
 pub mod official_probe;
 pub mod offline_cache;
+pub mod platform_storage;
 pub mod scheduler;
 pub mod script_index;
 pub mod unity_container;
