@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 pub use wlre_core_observability::ErrorCode as CacheError;
 
-const BASE: &str = "https://wlreftpsrc.chinesegamer.net/WLN/TW/1.3.22/ResourcesPC/AssetBundle/";
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
 
 /// 快取物件識別必須是可信來源提供的 SHA-256，不可使用未確認的官方欄位充當。
@@ -22,20 +21,47 @@ pub fn download_bundle(
     expected_sha256: &str,
     size: u64,
 ) -> Result<PathBuf, CacheError> {
+    download_observed_bundle(
+        root,
+        crate::version_map::Platform::Windows,
+        "1.3.22",
+        bundle_name,
+        expected_sha256,
+        size,
+    )
+}
+
+/// 僅支援已觀察的版本及平台組合；預期 SHA-256 須來自可信來源。
+pub fn download_observed_bundle(
+    root: &Path,
+    platform: crate::version_map::Platform,
+    data_version: &str,
+    bundle_name: &str,
+    expected_sha256: &str,
+    size: u64,
+) -> Result<PathBuf, CacheError> {
     let name = validate_name(bundle_name)?;
     let digest = validate_digest(expected_sha256)?;
     if size > MAX_BYTES {
         return Err(CacheError::CacheTooLarge);
     }
+    let dir = match (platform, data_version) {
+        (crate::version_map::Platform::Windows, "1.3.21" | "1.3.22") => "ResourcesPC",
+        (crate::version_map::Platform::Android, "1.3.21") => "ResourcesAndroid",
+        _ => return Err(CacheError::VersionMappingUnknown),
+    };
     let client = Client::builder()
         .redirect(Policy::none())
         .timeout(Duration::from_secs(60))
         .build()
         .map_err(|_| CacheError::RequestFailed)?;
-    download_with_client(&client, &format!("{BASE}{name}"), root, &digest, size)
+    let url = format!(
+        "https://wlreftpsrc.chinesegamer.net/WLN/TW/{data_version}/{dir}/AssetBundle/{name}"
+    );
+    download_with_client(&client, &url, root, &digest, size)
 }
 
-fn validate_name(name: &str) -> Result<&str, CacheError> {
+pub(crate) fn validate_name(name: &str) -> Result<&str, CacheError> {
     if name.is_empty()
         || name.len() > 200
         || name.ends_with('.')
@@ -49,7 +75,7 @@ fn validate_name(name: &str) -> Result<&str, CacheError> {
     }
     Ok(name)
 }
-fn validate_digest(value: &str) -> Result<String, CacheError> {
+pub(crate) fn validate_digest(value: &str) -> Result<String, CacheError> {
     if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(CacheError::CacheInvalidInput);
     }

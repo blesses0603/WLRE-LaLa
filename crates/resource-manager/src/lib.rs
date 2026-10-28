@@ -7,6 +7,7 @@ pub mod bundle_index;
 pub mod manifest_snapshot;
 pub mod official_probe;
 pub mod script_index;
+pub mod update_download;
 pub mod update_plan;
 pub mod verified_cache;
 pub mod version_map;

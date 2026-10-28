@@ -28,6 +28,8 @@ pub enum ErrorCode {
     DependencyCycle,
     ResourceNotFound,
     UnsupportedEncryption,
+    DownloadQuotaExceeded,
+    TrustedDigestMissing,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
