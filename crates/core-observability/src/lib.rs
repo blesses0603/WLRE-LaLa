@@ -19,6 +19,9 @@ pub enum ErrorCode {
     IndexDuplicatePath,
     IndexTooManyEntries,
     IndexUnsupportedVersion,
+    CacheInvalidInput,
+    CacheIntegrityFailure,
+    CacheTooLarge,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
