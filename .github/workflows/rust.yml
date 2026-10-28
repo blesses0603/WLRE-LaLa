@@ -34,3 +34,21 @@ jobs:
       # 單一封包下載及快取驗收，資料僅存工作執行器暫存目錄。
       - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.3.0'
         run: cargo test -p wlre-resource-manager official_bundle_cache_smoke -- --ignored
+
+  cross-platform-core:
+    name: 共用核心跨平台測試（${{ matrix.os }}）
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
