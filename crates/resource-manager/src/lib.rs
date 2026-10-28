@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+pub mod bundle_index;
 pub mod official_probe;
 pub mod script_index;
 pub use wlre_core_observability::ErrorCode as ResourceError;

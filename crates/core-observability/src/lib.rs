@@ -18,6 +18,7 @@ pub enum ErrorCode {
     IndexInvalidEntry,
     IndexDuplicatePath,
     IndexTooManyEntries,
+    IndexUnsupportedVersion,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

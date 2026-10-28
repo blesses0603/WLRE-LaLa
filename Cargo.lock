@@ -1175,6 +1175,8 @@ name = "wlre-resource-manager"
 version = "0.1.0"
 dependencies = [
  "reqwest",
+ "serde",
+ "serde_json",
  "wlre-core-observability",
 ]
 
