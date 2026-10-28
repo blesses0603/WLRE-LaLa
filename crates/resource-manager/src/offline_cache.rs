@@ -2,8 +2,7 @@
 use crate::{
     bundle_index::{self, BundleIndex},
     manifest_snapshot::Snapshot,
-    official_cache,
-    version_map,
+    official_cache, version_map,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -45,8 +44,8 @@ pub fn save(root: &Path, snapshot: &Snapshot) -> Result<(), OfflineError> {
     if data.len() as u64 > MAX_INDEX_BYTES {
         return Err(OfflineError::IndexTooLarge);
     }
-    let mut temp = tempfile::NamedTempFile::new_in(root)
-        .map_err(|_| OfflineError::StorageFailure)?;
+    let mut temp =
+        tempfile::NamedTempFile::new_in(root).map_err(|_| OfflineError::StorageFailure)?;
     temp.write_all(&data)
         .map_err(|_| OfflineError::StorageFailure)?;
     temp.as_file_mut()
