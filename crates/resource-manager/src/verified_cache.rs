@@ -242,6 +242,98 @@ mod tests {
         assert_eq!(std::fs::read(root.path().join(&digest)).unwrap(), data);
     }
     #[test]
+    fn interrupted_download_does_not_publish_or_leave_temporary_file() {
+        let root = tempfile::tempdir().unwrap();
+        let data = b"complete payload";
+        let digest = sha(data);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0; 256];
+            while !request.ends_with(b"\r\n\r\n") {
+                let n = socket.read(&mut buf).unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&buf[..n]);
+            }
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\nshort",
+                data.len()
+            )
+            .unwrap();
+        });
+        let result = download_with_client(
+            &client(),
+            &format!("http://{address}/file"),
+            root.path(),
+            &digest,
+            data.len() as u64,
+        );
+        server.join().unwrap();
+        assert!(result.is_err());
+        assert!(!root.path().join(&digest).exists());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn final_object_is_not_visible_until_download_is_verified() {
+        use std::sync::mpsc;
+        let root = tempfile::tempdir().unwrap();
+        let root_path = root.path().to_owned();
+        let data = b"synthetic payload";
+        let digest = sha(data);
+        let expected = digest.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent_tx, sent_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0; 256];
+            while !request.ends_with(b"\r\n\r\n") {
+                let n = socket.read(&mut buf).unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&buf[..n]);
+            }
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                data.len()
+            )
+            .unwrap();
+            socket.write_all(&data[..4]).unwrap();
+            sent_tx.send(()).unwrap();
+            resume_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+            socket.write_all(&data[4..]).unwrap();
+        });
+        let downloader = thread::spawn(move || {
+            download_with_client(
+                &client(),
+                &format!("http://{address}/file"),
+                &root_path,
+                &expected,
+                data.len() as u64,
+            )
+        });
+        sent_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        let visible_before_completion = root.path().join(&digest).exists();
+        resume_tx.send(()).unwrap();
+        server.join().unwrap();
+        let result = downloader.join().unwrap().unwrap();
+        assert!(!visible_before_completion);
+        assert_eq!(std::fs::read(result).unwrap(), data);
+    }
+
+    #[test]
     fn rejects_untrusted_names_and_hashes() {
         for name in ["../x", "a/b", "https://x", "x%2f", "x?y", ""] {
             assert_eq!(validate_name(name), Err(CacheError::CacheInvalidInput));
