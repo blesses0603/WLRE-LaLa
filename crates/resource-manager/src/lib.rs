@@ -4,8 +4,10 @@ use std::collections::BTreeMap;
 
 pub mod binary_manifest;
 pub mod bundle_index;
+pub mod manifest_snapshot;
 pub mod official_probe;
 pub mod script_index;
+pub mod update_plan;
 pub mod verified_cache;
 pub mod version_map;
 pub use wlre_core_observability::ErrorCode as ResourceError;

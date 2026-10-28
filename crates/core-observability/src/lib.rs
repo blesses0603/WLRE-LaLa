@@ -24,6 +24,10 @@ pub enum ErrorCode {
     CacheTooLarge,
     VersionMappingUnknown,
     VersionMappingAmbiguous,
+    SnapshotChanged,
+    DependencyCycle,
+    ResourceNotFound,
+    UnsupportedEncryption,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
