@@ -22,3 +22,6 @@ jobs:
       # 單次低負載官方端點驗收；其他分支與 PR 事件不觸發。
       - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.2.0'
         run: cargo test -p wlre-resource-manager official_observed_index_smoke -- --ignored
+      # 開發分支對單一官方二進位清單執行有限次驗收。
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.3.0'
+        run: cargo test -p wlre-resource-manager official_binary_manifest_smoke -- --ignored

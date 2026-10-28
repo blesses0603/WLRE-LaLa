@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+pub mod binary_manifest;
 pub mod bundle_index;
 pub mod official_probe;
 pub mod script_index;

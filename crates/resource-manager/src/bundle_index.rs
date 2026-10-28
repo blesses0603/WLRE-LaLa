@@ -148,6 +148,10 @@ pub fn parse(input: &[u8]) -> Result<BundleIndex, IndexError> {
     }
     let index: BundleIndex =
         serde_json::from_slice(input).map_err(|_| IndexError::IndexInvalidEntry)?;
+    validate(index)
+}
+
+pub(crate) fn validate(index: BundleIndex) -> Result<BundleIndex, IndexError> {
     if index.file_version != "2.2.5" {
         return Err(IndexError::IndexUnsupportedVersion);
     }
