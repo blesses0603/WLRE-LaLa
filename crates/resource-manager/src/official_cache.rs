@@ -221,9 +221,8 @@ mod tests {
     #[ignore = "需對官方固定端點讀取一個小型封包至暫存目錄"]
     fn official_bundle_cache_smoke() {
         let snapshot = crate::manifest_snapshot::fetch(Platform::Windows, "1.3.0").unwrap();
-        let all =
-            crate::auto_update::prepare_bundles(&snapshot, 10_000, 8 * 1024 * 1024 * 1024).unwrap();
-        assert!(!all.is_empty());
+        // 只抽樣已確認的單一封包；不以整包下載當作自動更新驗收。
+        assert!(!snapshot.data.bundle_list.is_empty());
         let item = snapshot
             .data
             .bundle_list
