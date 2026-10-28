@@ -10,6 +10,8 @@ LaLa 跨平台重新開發專案。**Rust 共用核心**、Windows／macOS 的 *
 - [架構及版本規劃](docs/架構.md)
 - [P0～P6 開發路線圖與驗收門檻](docs/ROADMAP.md)
 - [P1 官方資源管理驗收與風險紀錄](docs/P1-驗收.md)
+- [舊版桌面／Android 功能盤點與新版責任](docs/舊版功能盤點與新版責任.md)
+- [LaLa 功能與官方資源需求矩陣](docs/功能與官方資源需求矩陣.md)
 - [官方資源調查與未確認事項](docs/官方資源調查.md)
 
 遊戲資源唯一指定原始來源：https://wlreftpsrc.chinesegamer.net/WLN/TW/ 。需先確認官方更新與格式資訊，才可實作相對應轉接器；禁止提交官方遊戲素材。
