@@ -19,12 +19,79 @@ const REQUEST_GAP: Duration = Duration::from_millis(200);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Feature {
     Account,
+    Character,
     Map,
+    Navigation,
+    Portal,
     Battle,
     Inventory,
+    Storage,
     Expedition,
     Social,
+    Party,
     Pet,
+    Npc,
+    Shop,
+    Alchemy,
+    Crafting,
+    Dungeon,
+    Cooperative,
+    Maintenance,
+    Analytics,
+    Housing,
+}
+
+impl Feature {
+    /// 穩定跨平台功能識別；僅用於功能註冊／資源需求，不代表功能或伺服器指令已可用。
+    pub const ALL: [Feature; 21] = [
+        Self::Account,
+        Self::Character,
+        Self::Map,
+        Self::Navigation,
+        Self::Portal,
+        Self::Battle,
+        Self::Inventory,
+        Self::Storage,
+        Self::Expedition,
+        Self::Social,
+        Self::Party,
+        Self::Pet,
+        Self::Npc,
+        Self::Shop,
+        Self::Alchemy,
+        Self::Crafting,
+        Self::Dungeon,
+        Self::Cooperative,
+        Self::Maintenance,
+        Self::Analytics,
+        Self::Housing,
+    ];
+
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Account => "account",
+            Self::Character => "character",
+            Self::Map => "map",
+            Self::Navigation => "navigation",
+            Self::Portal => "portal",
+            Self::Battle => "battle",
+            Self::Inventory => "inventory",
+            Self::Storage => "storage",
+            Self::Expedition => "expedition",
+            Self::Social => "social",
+            Self::Party => "party",
+            Self::Pet => "pet",
+            Self::Npc => "npc",
+            Self::Shop => "shop",
+            Self::Alchemy => "alchemy",
+            Self::Crafting => "crafting",
+            Self::Dungeon => "dungeon",
+            Self::Cooperative => "cooperative",
+            Self::Maintenance => "maintenance",
+            Self::Analytics => "analytics",
+            Self::Housing => "housing",
+        }
+    }
 }
 
 /// 選擇官方二進位清單 AssetList 中的精確 Address 或 AssetPath。
@@ -369,6 +436,22 @@ mod tests {
             )
             .unwrap();
         catalog
+    }
+
+    #[test]
+    fn feature_ids_cover_legacy_scope_without_duplicates() {
+        let ids: BTreeSet<&str> = Feature::ALL.into_iter().map(Feature::id).collect();
+        assert_eq!(ids.len(), Feature::ALL.len());
+        for expected in [
+            "account", "character", "map", "navigation", "portal", "battle",
+            "inventory", "storage", "expedition", "social", "party", "pet",
+            "npc", "shop", "alchemy", "crafting", "dungeon", "cooperative",
+            "maintenance", "analytics", "housing",
+        ] {
+            assert!(ids.contains(expected), "missing {expected}");
+        }
+        let catalog = FeatureCatalog::default();
+        assert!(Feature::ALL.iter().all(|feature| !catalog.has_feature(*feature)));
     }
 
     #[test]
