@@ -246,7 +246,6 @@ impl Operations for OfficialOperations<'_> {
                 .downloaded,
         )
     }
-
 }
 
 fn run_cycle(
@@ -394,10 +393,16 @@ mod tests {
     fn tracks_changes_and_downloads_only_enabled_feature_bundles() {
         let root = tempfile::tempdir().unwrap();
         let mut config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
-        config.catalog.bind(Feature::Map, crate::feature_resources::AssetBinding {
-            package: crate::bundle_index::Package::Data,
-            key: crate::feature_resources::AssetKey::Address("DataPackage-needed".into()),
-        }).unwrap();
+        config
+            .catalog
+            .bind(
+                Feature::Map,
+                crate::feature_resources::AssetBinding {
+                    package: crate::bundle_index::Package::Data,
+                    key: crate::feature_resources::AssetKey::Address("DataPackage-needed".into()),
+                },
+            )
+            .unwrap();
         config.enable_feature(Feature::Map).unwrap();
         let ops = MockOperations {
             version: std::cell::Cell::new(21),
@@ -411,7 +416,11 @@ mod tests {
         ops.version.set(22);
         run_cycle(&config, &ops, &event_tx, &wake_rx, &stop, Some(&first)).unwrap();
         assert_eq!(ops.downloads.borrow().len(), 2);
-        assert!(ops.downloads.borrow().iter().all(|name| name.contains("DataPackage")));
+        assert!(ops
+            .downloads
+            .borrow()
+            .iter()
+            .all(|name| name.contains("DataPackage")));
         assert!(ops
             .downloads
             .borrow()
@@ -423,10 +432,16 @@ mod tests {
     fn selected_feature_allows_cyclic_dependency_graph() {
         let root = tempfile::tempdir().unwrap();
         let mut config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
-        config.catalog.bind(Feature::Map, crate::feature_resources::AssetBinding {
-            package: crate::bundle_index::Package::Data,
-            key: crate::feature_resources::AssetKey::Address("DataPackage-needed".into()),
-        }).unwrap();
+        config
+            .catalog
+            .bind(
+                Feature::Map,
+                crate::feature_resources::AssetBinding {
+                    package: crate::bundle_index::Package::Data,
+                    key: crate::feature_resources::AssetKey::Address("DataPackage-needed".into()),
+                },
+            )
+            .unwrap();
         config.enable_feature(Feature::Map).unwrap();
         let ops = MockOperations {
             version: std::cell::Cell::new(21),
@@ -444,14 +459,26 @@ mod tests {
     fn refuses_quota_before_downloading_any_bundle() {
         let root = tempfile::tempdir().unwrap();
         let mut config = Config::new(root.path().to_owned(), Platform::Windows, "1.3.0".into());
-        config.catalog.bind(Feature::Map, crate::feature_resources::AssetBinding {
-            package: crate::bundle_index::Package::Data,
-            key: crate::feature_resources::AssetKey::Address("DataPackage-needed".into()),
-        }).unwrap();
-        config.catalog.bind(Feature::Battle, crate::feature_resources::AssetBinding {
-            package: crate::bundle_index::Package::Main,
-            key: crate::feature_resources::AssetKey::Address("MainPackage-needed".into()),
-        }).unwrap();
+        config
+            .catalog
+            .bind(
+                Feature::Map,
+                crate::feature_resources::AssetBinding {
+                    package: crate::bundle_index::Package::Data,
+                    key: crate::feature_resources::AssetKey::Address("DataPackage-needed".into()),
+                },
+            )
+            .unwrap();
+        config
+            .catalog
+            .bind(
+                Feature::Battle,
+                crate::feature_resources::AssetBinding {
+                    package: crate::bundle_index::Package::Main,
+                    key: crate::feature_resources::AssetKey::Address("MainPackage-needed".into()),
+                },
+            )
+            .unwrap();
         config.enable_feature(Feature::Map).unwrap();
         config.enable_feature(Feature::Battle).unwrap();
         config.max_files = 1;
@@ -484,7 +511,9 @@ mod tests {
         let stop = AtomicBool::new(false);
         run_cycle(&config, &ops, &events, &wake_rx, &stop, None).unwrap();
         assert!(ops.downloads.borrow().is_empty());
-        assert!(receiver.try_iter().any(|event| matches!(event, Event::VersionObserved { .. })));
+        assert!(receiver
+            .try_iter()
+            .any(|event| matches!(event, Event::VersionObserved { .. })));
     }
 
     #[test]
