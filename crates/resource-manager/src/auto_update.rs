@@ -254,6 +254,14 @@ impl Operations for OfficialOperations<'_> {
                 .downloaded,
         )
     }
+    fn record_completed(
+        &self,
+        config: &Config,
+        snapshot: &Snapshot,
+        selected: &[&Bundle],
+    ) -> Result<(), UpdateError> {
+        offline_cache::save_selected(&config.root, snapshot, selected)
+    }
 }
 
 fn run_cycle(
