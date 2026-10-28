@@ -439,7 +439,7 @@ mod tests {
             .unwrap_err(),
             FeatureError::ResourceNotFound
         );
-        let mut duplicated = snapshot();
+        let mut duplicated = snapshot.clone();
         duplicated
             .data
             .asset_list
@@ -482,7 +482,7 @@ mod tests {
             .unwrap_err(),
             FeatureError::DownloadQuotaExceeded
         );
-        let mut protected = snapshot();
+        let mut protected = snapshot.clone();
         protected.data.bundle_list[1].encrypted = true;
         assert_eq!(
             select(
