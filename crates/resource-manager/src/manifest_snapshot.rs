@@ -87,17 +87,24 @@ fn fetch_from(
     let revision = |name: &str| text(source.get(&format!("{root}{name}.version"), 128)?);
     let data_revision = revision("DataPackage")?;
     let main_revision = revision("MainPackage")?;
-    let get_manifest = |name: &str, revision: &str| -> Result<BundleIndex, SnapshotError> {
-        let hash = text(source.get(&format!("{root}{name}.hash"), 8)?)?;
-        let bytes = source.get(&format!("{root}{name}.bytes"), MANIFEST_LIMIT)?;
-        binary_manifest::parse(&bytes, &hash, name, revision)
-    };
-    let data = get_manifest("DataPackage", &data_revision)?;
-    let main = get_manifest("MainPackage", &main_revision)?;
+    let hash = |name: &str| text(source.get(&format!("{root}{name}.hash"), 8)?);
+    let data_hash = hash("DataPackage")?;
+    let data_bytes = source.get(&format!("{root}DataPackage.bytes"), MANIFEST_LIMIT)?;
+    let data = binary_manifest::parse(&data_bytes, &data_hash, "DataPackage", &data_revision)?;
+    let main_hash = hash("MainPackage")?;
+    let main_bytes = source.get(&format!("{root}MainPackage.bytes"), MANIFEST_LIMIT)?;
+    let main = binary_manifest::parse(&main_bytes, &main_hash, "MainPackage", &main_revision)?;
     let final_data = revision("DataPackage")?;
     let final_main = revision("MainPackage")?;
     let final_version = version_map::select(&source.get(map, 16 * 1024)?, executable)?;
-    if data_version != final_version || data_revision != final_data || main_revision != final_main {
+    let final_data_hash = hash("DataPackage")?;
+    let final_main_hash = hash("MainPackage")?;
+    if data_version != final_version
+        || data_revision != final_data
+        || main_revision != final_main
+        || !data_hash.eq_ignore_ascii_case(&final_data_hash)
+        || !main_hash.eq_ignore_ascii_case(&final_main_hash)
+    {
         return Err(SnapshotError::SnapshotChanged);
     }
     Ok(Snapshot {
@@ -182,6 +189,14 @@ mod tests {
             Err(SnapshotError::UnexpectedResponse)
         }
     }
+    #[test]
+    #[ignore = "需對官方固定端點執行低負載驗證"]
+    fn official_current_snapshot_smoke() {
+        let snapshot = fetch(version_map::Platform::Windows, "1.3.0").unwrap();
+        assert!(!snapshot.data.bundle_list.is_empty());
+        assert!(!snapshot.main.bundle_list.is_empty());
+    }
+
     #[test]
     fn fetches_two_checked_manifests_and_rechecks_revisions() {
         let source = Mock {

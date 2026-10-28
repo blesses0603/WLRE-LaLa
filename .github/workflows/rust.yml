@@ -25,3 +25,6 @@ jobs:
       # 開發分支對單一官方二進位清單執行有限次驗收。
       - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.3.0'
         run: cargo test -p wlre-resource-manager official_binary_manifest_smoke -- --ignored
+      # 單次觀察兩包快照，不下載遊戲封包。
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/codex/core-v0.3.0'
+        run: cargo test -p wlre-resource-manager official_current_snapshot_smoke -- --ignored
