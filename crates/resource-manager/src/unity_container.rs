@@ -95,7 +95,6 @@ pub fn extract(input: &[u8], expected_sha256: &str) -> Result<Vec<Entry>, Extrac
     Ok(result)
 }
 
-
 /// 將已驗證的 UnityFS 容器項目安全保存到私有快取的內容定址目錄。
 /// 先寫入獨立暫存資料夾，全部成功後才發布；若既有內容遭損毀即拒絕重用。
 /// 只支援已識別的容器項目，不解析 Unity 物件或未知加密格式。
@@ -117,8 +116,7 @@ pub fn extract_to_cache(
         validate_existing(&target, &entries)?;
         return Ok(target);
     }
-    let temporary =
-        tempfile::tempdir_in(root).map_err(|_| ExtractError::StorageFailure)?;
+    let temporary = tempfile::tempdir_in(root).map_err(|_| ExtractError::StorageFailure)?;
     for entry in &entries {
         let path = temporary.path().join(&entry.name);
         let mut file = OpenOptions::new()
@@ -134,10 +132,7 @@ pub fn extract_to_cache(
     Ok(target)
 }
 
-fn validate_existing(
-    dir: &std::path::Path,
-    expected: &[Entry],
-) -> Result<(), ExtractError> {
+fn validate_existing(dir: &std::path::Path, expected: &[Entry]) -> Result<(), ExtractError> {
     use std::fs;
     let meta = fs::symlink_metadata(dir).map_err(|_| ExtractError::StorageFailure)?;
     if !meta.file_type().is_dir() {
