@@ -227,6 +227,14 @@ trait Operations {
         version: &str,
         bundle: &Bundle,
     ) -> Result<bool, UpdateError>;
+    fn record_completed(
+        &self,
+        _config: &Config,
+        _snapshot: &Snapshot,
+        _selected: &[&Bundle],
+    ) -> Result<(), UpdateError> {
+        Ok(())
+    }
 }
 struct OfficialOperations<'a> {
     client: &'a reqwest::blocking::Client,
@@ -306,7 +314,8 @@ fn run_cycle(
     if Identity::from(&latest) != identity {
         return Err(UpdateError::SnapshotChanged);
     }
-    if !config.enabled_features.is_empty() {
+    if !bundles.is_empty() {
+        operations.record_completed(config, &latest, &bundles)?;
         let _ = tx.send(Event::Completed { total, downloaded });
     }
     Ok(identity)
