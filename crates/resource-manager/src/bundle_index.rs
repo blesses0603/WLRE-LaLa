@@ -73,7 +73,15 @@ pub fn fetch_current(
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|_| IndexError::RequestFailed)?;
-    fetch_with_client(&client, &url)
+    let index = fetch_with_client(&client, &url)?;
+    let expected_name = match package {
+        Package::Data => "DataPackage",
+        Package::Main => "MainPackage",
+    };
+    if index.package_name != expected_name {
+        return Err(IndexError::IndexInvalidEntry);
+    }
+    Ok(index)
 }
 
 fn observed_index_url(
