@@ -166,10 +166,10 @@ impl AutoUpdater {
                                 UpdateError::RequestFailed | UpdateError::UnexpectedResponse
                             ) {
                                 if let Ok(Some(cache)) = offline_cache::verify(&config.root) {
-                                let _ = tx.send(Event::OfflineCacheAvailable {
-                                    data_version: cache.data_version,
-                                    bundle_count: cache.bundle_count,
-                                });
+                                    let _ = tx.send(Event::OfflineCacheAvailable {
+                                        data_version: cache.data_version,
+                                        bundle_count: cache.bundle_count,
+                                    });
                                 }
                             }
                             let _ = tx.send(Event::Failed { error });
