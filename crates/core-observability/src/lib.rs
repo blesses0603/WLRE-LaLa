@@ -32,6 +32,7 @@ pub enum ErrorCode {
     TrustedDigestMissing,
     VersionStateInvalid,
     RollbackUnavailable,
+    ScheduleInvalid,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
