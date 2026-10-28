@@ -1,6 +1,6 @@
 //! 觀察到的資源包 JSON 結構；不選擇遊戲版本，不執行下載或提取。
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 pub use wlre_core_observability::ErrorCode as IndexError;
 
@@ -9,7 +9,7 @@ const MAX_BUNDLES: usize = 100_000;
 const MAX_ASSETS: usize = 500_000;
 
 /// 保留實際索引中的清單順序：關聯及相依編號以此順序索引。
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct BundleIndex {
     pub file_version: String,
@@ -19,7 +19,7 @@ pub struct BundleIndex {
     pub bundle_list: Vec<Bundle>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Asset {
     pub address: String,
@@ -31,7 +31,7 @@ pub struct Asset {
     pub bundle_id: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Bundle {
     pub bundle_name: String,
