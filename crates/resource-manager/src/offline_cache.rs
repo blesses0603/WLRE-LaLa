@@ -263,6 +263,29 @@ mod tests {
     }
 
     #[test]
+    fn failed_new_snapshot_does_not_destroy_last_verified_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = snapshot();
+        write_bundle(dir.path(), &old.data.bundle_list[0], b"offline test");
+        write_bundle(dir.path(), &old.main.bundle_list[0], b"offline main");
+        save(dir.path(), &old).unwrap();
+        let mut next = snapshot();
+        next.data_version = "1.3.22".into();
+        next.data.bundle_list[0].file_hash = "0".repeat(32);
+        assert_eq!(
+            save(dir.path(), &next),
+            Err(OfflineError::CacheIntegrityFailure)
+        );
+        assert_eq!(
+            verify(dir.path()).unwrap(),
+            Some(OfflineStatus {
+                data_version: "1.3.21".into(),
+                bundle_count: 2,
+            })
+        );
+    }
+
+    #[test]
     fn refuses_symlinked_metadata() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(CACHE_FILE);
