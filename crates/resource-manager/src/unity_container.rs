@@ -95,6 +95,76 @@ pub fn extract(input: &[u8], expected_sha256: &str) -> Result<Vec<Entry>, Extrac
     Ok(result)
 }
 
+
+/// 將已驗證的 UnityFS 容器項目安全保存到私有快取的內容定址目錄。
+/// 先寫入獨立暫存資料夾，全部成功後才發布；若既有內容遭損毀即拒絕重用。
+/// 只支援已識別的容器項目，不解析 Unity 物件或未知加密格式。
+pub fn extract_to_cache(
+    input: &[u8],
+    expected_sha256: &str,
+    root: &std::path::Path,
+) -> Result<std::path::PathBuf, ExtractError> {
+    use std::fs::{self, OpenOptions};
+    use std::io::Write;
+    let entries = extract(input, expected_sha256)?;
+    let metadata = fs::symlink_metadata(root).map_err(|_| ExtractError::StorageFailure)?;
+    if !metadata.file_type().is_dir() {
+        return Err(ExtractError::CacheInvalidInput);
+    }
+    let digest = crate::verified_cache::validate_digest(expected_sha256)?;
+    let target = root.join(format!("unity-{digest}"));
+    if fs::symlink_metadata(&target).is_ok() {
+        validate_existing(&target, &entries)?;
+        return Ok(target);
+    }
+    let temporary =
+        tempfile::tempdir_in(root).map_err(|_| ExtractError::StorageFailure)?;
+    for entry in &entries {
+        let path = temporary.path().join(&entry.name);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map_err(|_| ExtractError::StorageFailure)?;
+        file.write_all(&entry.data)
+            .map_err(|_| ExtractError::StorageFailure)?;
+        file.sync_all().map_err(|_| ExtractError::StorageFailure)?;
+    }
+    fs::rename(temporary.path(), &target).map_err(|_| ExtractError::StorageFailure)?;
+    Ok(target)
+}
+
+fn validate_existing(
+    dir: &std::path::Path,
+    expected: &[Entry],
+) -> Result<(), ExtractError> {
+    use std::fs;
+    let meta = fs::symlink_metadata(dir).map_err(|_| ExtractError::StorageFailure)?;
+    if !meta.file_type().is_dir() {
+        return Err(ExtractError::CacheInvalidInput);
+    }
+    let count = fs::read_dir(dir)
+        .map_err(|_| ExtractError::StorageFailure)?
+        .try_fold(0usize, |count, item| {
+            item.map_err(|_| ExtractError::StorageFailure)?;
+            Ok::<usize, ExtractError>(count + 1)
+        })?;
+    if count != expected.len() {
+        return Err(ExtractError::CacheIntegrityFailure);
+    }
+    for entry in expected {
+        let path = dir.join(&entry.name);
+        let meta = fs::symlink_metadata(&path).map_err(|_| ExtractError::CacheIntegrityFailure)?;
+        if !meta.file_type().is_file() || meta.len() != entry.data.len() as u64 {
+            return Err(ExtractError::CacheIntegrityFailure);
+        }
+        if fs::read(path).map_err(|_| ExtractError::StorageFailure)? != entry.data {
+            return Err(ExtractError::CacheIntegrityFailure);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +231,36 @@ mod tests {
             }]
         );
     }
+    #[test]
+    fn publishes_extracted_cache_only_after_validation_and_reuses_it() {
+        let root = tempfile::tempdir().unwrap();
+        let bytes = synthetic("CAB-test");
+        let digest = sha(&bytes);
+        let path = extract_to_cache(&bytes, &digest, root.path()).unwrap();
+        assert_eq!(std::fs::read(path.join("CAB-test")).unwrap(), b"sample");
+        assert_eq!(
+            extract_to_cache(&bytes, &digest, root.path()).unwrap(),
+            path
+        );
+        std::fs::write(path.join("CAB-test"), b"tamper").unwrap();
+        assert!(matches!(
+            extract_to_cache(&bytes, &digest, root.path()),
+            Err(ExtractError::CacheIntegrityFailure)
+        ));
+    }
+
+    #[test]
+    fn invalid_container_does_not_publish_any_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let bytes = synthetic("../escape");
+        let digest = sha(&bytes);
+        assert_eq!(
+            extract_to_cache(&bytes, &digest, root.path()),
+            Err(ExtractError::ExtractionInvalid)
+        );
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
     #[test]
     fn rejects_wrong_hash_and_unsafe_names() {
         let bytes = synthetic("../escape");
