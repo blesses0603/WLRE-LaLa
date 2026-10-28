@@ -15,13 +15,15 @@ pub use wlre_core_observability::ErrorCode as OfflineError;
 
 const CACHE_FILE: &str = "last-verified-snapshot.json";
 const MAX_INDEX_BYTES: u64 = 64 * 1024 * 1024;
-const SCHEMA_VERSION: u8 = 1;
+const SCHEMA_VERSION: u8 = 2;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Stored {
     schema_version: u8,
     snapshot: Snapshot,
+    /// 每個封包在最後一次成功更新時的本機 SHA-256；不是官方簽章。
+    bundle_sha256: BTreeMap<String, String>,
 }
 
 /// 已使用本機官方 MD5／CRC32 資料檢查所有封包；不包含來源簽章保證。
@@ -36,9 +38,11 @@ pub struct OfflineStatus {
 pub fn save(root: &Path, snapshot: &Snapshot) -> Result<(), OfflineError> {
     check_root(root)?;
     validate_snapshot(snapshot)?;
+    let bundle_sha256 = verified_digests(root, snapshot)?;
     let data = serde_json::to_vec(&Stored {
         schema_version: SCHEMA_VERSION,
         snapshot: snapshot.clone(),
+        bundle_sha256,
     })
     .map_err(|_| OfflineError::StorageFailure)?;
     if data.len() as u64 > MAX_INDEX_BYTES {
@@ -52,6 +56,10 @@ pub fn save(root: &Path, snapshot: &Snapshot) -> Result<(), OfflineError> {
         .sync_all()
         .map_err(|_| OfflineError::StorageFailure)?;
     temp.persist(root.join(CACHE_FILE))
+        .map_err(|_| OfflineError::StorageFailure)?;
+    #[cfg(unix)]
+    fs::File::open(root)
+        .and_then(|dir| dir.sync_all())
         .map_err(|_| OfflineError::StorageFailure)?;
     Ok(())
 }
@@ -87,11 +95,29 @@ pub fn verify(root: &Path) -> Result<Option<OfflineStatus>, OfflineError> {
         return Err(OfflineError::IndexUnsupportedVersion);
     }
     validate_snapshot(&stored.snapshot)?;
-    let mut seen: BTreeMap<String, &crate::bundle_index::Bundle> = BTreeMap::new();
-    for index in [&stored.snapshot.data, &stored.snapshot.main] {
+    let actual = verified_digests(root, &stored.snapshot)?;
+    if stored.bundle_sha256 != actual {
+        return Err(OfflineError::CacheIntegrityFailure);
+    }
+    Ok(Some(OfflineStatus {
+        data_version: stored.snapshot.data_version,
+        bundle_count: actual.len(),
+    }))
+}
+
+
+fn verified_digests(
+    root: &Path,
+    snapshot: &Snapshot,
+) -> Result<BTreeMap<String, String>, OfflineError> {
+    let mut seen: BTreeMap<String, (&crate::bundle_index::Bundle, String)> = BTreeMap::new();
+    for index in [&snapshot.data, &snapshot.main] {
         for bundle in &index.bundle_list {
+            if bundle.encrypted {
+                return Err(OfflineError::UnsupportedEncryption);
+            }
             let key = bundle.bundle_name.to_ascii_lowercase();
-            if let Some(previous) = seen.get(&key) {
+            if let Some((previous, _)) = seen.get(&key) {
                 if previous.file_hash != bundle.file_hash
                     || previous.file_crc != bundle.file_crc
                     || previous.file_size != bundle.file_size
@@ -100,16 +126,12 @@ pub fn verify(root: &Path) -> Result<Option<OfflineStatus>, OfflineError> {
                 }
                 continue;
             }
-            seen.insert(key, bundle);
-            if !official_cache::check_cached(root, bundle)? {
-                return Err(OfflineError::CacheIntegrityFailure);
-            }
+            let digest = official_cache::cached_sha256(root, bundle)?
+                .ok_or(OfflineError::CacheIntegrityFailure)?;
+            seen.insert(key, (bundle, digest));
         }
     }
-    Ok(Some(OfflineStatus {
-        data_version: stored.snapshot.data_version,
-        bundle_count: seen.len(),
-    }))
+    Ok(seen.into_iter().map(|(name, (_, sha))| (name, sha)).collect())
 }
 
 fn check_root(root: &Path) -> Result<(), OfflineError> {
@@ -220,9 +242,13 @@ mod tests {
     fn missing_or_corrupted_bundle_is_not_reported_as_offline_ready() {
         let dir = tempfile::tempdir().unwrap();
         let value = snapshot();
-        save(dir.path(), &value).unwrap();
-        assert_eq!(verify(dir.path()), Err(OfflineError::CacheIntegrityFailure));
+        assert_eq!(
+            save(dir.path(), &value),
+            Err(OfflineError::CacheIntegrityFailure)
+        );
         write_bundle(dir.path(), &value.data.bundle_list[0], b"offline test");
+        write_bundle(dir.path(), &value.main.bundle_list[0], b"offline main");
+        save(dir.path(), &value).unwrap();
         write_bundle(dir.path(), &value.main.bundle_list[0], b"offline bad!");
         assert_eq!(verify(dir.path()), Err(OfflineError::CacheIntegrityFailure));
     }
