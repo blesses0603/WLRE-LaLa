@@ -3,6 +3,7 @@ use crate::{
     bundle_index::Bundle,
     manifest_snapshot::{self, Snapshot},
     official_cache,
+    offline_cache,
     scheduler::Scheduler,
     version_map::Platform,
 };
@@ -67,6 +68,11 @@ pub enum Event {
     Completed {
         total: usize,
         downloaded: usize,
+    },
+    /// 網路失敗時僅代表舊快取仍可離線使用，絕不代表官方最新。
+    OfflineCacheAvailable {
+        data_version: String,
+        bundle_count: usize,
     },
     Failed {
         error: UpdateError,
@@ -147,6 +153,12 @@ impl AutoUpdater {
                             if error == UpdateError::UpdateCancelled {
                                 break;
                             }
+                            if let Ok(Some(cache)) = offline_cache::verify(&config.root) {
+                                let _ = tx.send(Event::OfflineCacheAvailable {
+                                    data_version: cache.data_version,
+                                    bundle_count: cache.bundle_count,
+                                });
+                            }
                             let _ = tx.send(Event::Failed { error });
                         }
                         if scheduler.finish(start.elapsed(), success).is_err() {
@@ -186,6 +198,9 @@ trait Operations {
         version: &str,
         bundle: &Bundle,
     ) -> Result<bool, UpdateError>;
+    fn completed(&self, _config: &Config, _snapshot: &Snapshot) -> Result<(), UpdateError> {
+        Ok(())
+    }
 }
 struct OfficialOperations<'a> {
     client: &'a reqwest::blocking::Client,
@@ -204,6 +219,10 @@ impl Operations for OfficialOperations<'_> {
             official_cache::fetch(self.client, &config.root, config.platform, version, bundle)?
                 .downloaded,
         )
+    }
+
+    fn completed(&self, config: &Config, snapshot: &Snapshot) -> Result<(), UpdateError> {
+        offline_cache::save(&config.root, snapshot)
     }
 }
 
@@ -259,6 +278,7 @@ fn run_cycle(
     if Identity::from(&latest) != identity {
         return Err(UpdateError::SnapshotChanged);
     }
+    operations.completed(config, &latest)?;
     let _ = tx.send(Event::Completed { total, downloaded });
     Ok(identity)
 }
