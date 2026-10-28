@@ -263,6 +263,25 @@ mod tests {
     }
 
     #[test]
+    fn replaces_last_verified_snapshot_with_newer_observation() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = snapshot();
+        write_bundle(dir.path(), &old.data.bundle_list[0], b"offline test");
+        write_bundle(dir.path(), &old.main.bundle_list[0], b"offline main");
+        save(dir.path(), &old).unwrap();
+        let mut next = snapshot();
+        next.data_version = "1.3.22".into();
+        save(dir.path(), &next).unwrap();
+        assert_eq!(
+            verify(dir.path()).unwrap(),
+            Some(OfflineStatus {
+                data_version: "1.3.22".into(),
+                bundle_count: 2,
+            })
+        );
+    }
+
+    #[test]
     fn failed_new_snapshot_does_not_destroy_last_verified_cache() {
         let dir = tempfile::tempdir().unwrap();
         let old = snapshot();
