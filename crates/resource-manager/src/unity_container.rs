@@ -210,8 +210,15 @@ mod tests {
         let mut bytes = Vec::new();
         response.take(65537).read_to_end(&mut bytes).unwrap();
         assert!(bytes.len() <= 65536);
-        let entries = extract(&bytes, &sha(&bytes)).unwrap();
+        let digest = sha(&bytes);
+        let entries = extract(&bytes, &digest).unwrap();
         assert!(!entries.is_empty());
+        let storage = tempfile::tempdir().unwrap();
+        let dir = extract_to_cache(&bytes, &digest, storage.path()).unwrap();
+        assert_eq!(
+            std::fs::read(dir.join(&entries[0].name)).unwrap(),
+            entries[0].data
+        );
     }
 
     #[test]
