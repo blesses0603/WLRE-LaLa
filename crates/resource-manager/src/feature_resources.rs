@@ -443,15 +443,34 @@ mod tests {
         let ids: BTreeSet<&str> = Feature::ALL.into_iter().map(Feature::id).collect();
         assert_eq!(ids.len(), Feature::ALL.len());
         for expected in [
-            "account", "character", "map", "navigation", "portal", "battle",
-            "inventory", "storage", "expedition", "social", "party", "pet",
-            "npc", "shop", "alchemy", "crafting", "dungeon", "cooperative",
-            "maintenance", "analytics", "housing",
+            "account",
+            "character",
+            "map",
+            "navigation",
+            "portal",
+            "battle",
+            "inventory",
+            "storage",
+            "expedition",
+            "social",
+            "party",
+            "pet",
+            "npc",
+            "shop",
+            "alchemy",
+            "crafting",
+            "dungeon",
+            "cooperative",
+            "maintenance",
+            "analytics",
+            "housing",
         ] {
             assert!(ids.contains(expected), "missing {expected}");
         }
         let catalog = FeatureCatalog::default();
-        assert!(Feature::ALL.iter().all(|feature| !catalog.has_feature(*feature)));
+        assert!(Feature::ALL
+            .iter()
+            .all(|feature| !catalog.has_feature(*feature)));
     }
 
     #[test]
