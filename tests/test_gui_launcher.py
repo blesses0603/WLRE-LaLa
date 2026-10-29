@@ -16,9 +16,10 @@ class GuiLauncherTests(unittest.TestCase):
             exe = scripts / "python.exe"
             (scripts / "pythonw.exe").touch()
             spawn = Mock()
-            with patch.dict(os.environ, {"LALA_STARTUP_RESOURCE_STATUS": "failed"}):
+            with patch.dict(os.environ, {"LALA_STARTUP_RESOURCE_STATUS": "installed"}), \
+                 patch.object(launcher, "verify_installed", return_value={"resources_installed": True}):
                 self.assertEqual(launcher.launch_gui(exe, popen=spawn), 0)
-                self.assertEqual(os.environ["LALA_STARTUP_RESOURCE_STATUS"], "failed")
+                self.assertEqual(os.environ["LALA_STARTUP_RESOURCE_STATUS"], "installed")
             spawn.assert_called_once()
             args, kwargs = spawn.call_args
             self.assertEqual(args[0], [str(scripts / "pythonw.exe"), "-m", "lala_desktop"])
@@ -27,6 +28,16 @@ class GuiLauncherTests(unittest.TestCase):
             self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
             self.assertTrue(kwargs["close_fds"])
             self.assertNotIn("env", kwargs)
+
+    def test_installation_gate_blocks_unverified_launch(self):
+        from lala_core.bundle_install import InstallError
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "pythonw.exe").touch()
+            with patch.object(launcher, "verify_installed",
+                              side_effect=InstallError("cache absent")):
+                with self.assertRaises(InstallError):
+                    launcher.launch_gui(root / "python.exe", popen=Mock())
 
     def test_missing_pythonw_fails_without_gui(self):
         with tempfile.TemporaryDirectory() as temp:

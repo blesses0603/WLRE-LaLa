@@ -3,10 +3,13 @@ from pathlib import Path
 import sys
 
 from .app import main
+from lala_core.resource_bootstrap import verify_installed
 
 
 def run():
     try:
+        # BAT installs resources before GUI startup; direct python -m cannot skip it.
+        verify_installed()
         return main()
     except Exception as exc:
         # 只有 console-less Windows pythonw 需要原生對話框；正常

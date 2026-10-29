@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 rem LaLa Windows launcher. Automatically locate a compatible Python via "py" or PATH.
-rem Double click: check Python/Pillow, read official versions and both Manifests, then open LaLa.
+rem Double click: check Python/Pillow, parse two official Manifests, install all Bundles, then open LaLa.
 rem CI: --check skips network and GUI. Diagnostic: --diagnose keeps network result visible.
 
 cd /d "%~dp0"
@@ -67,30 +67,28 @@ if "%PROBE_ONLY%"=="1" (
     exit /b 0
 )
 
-rem One combined check includes both version lookups and both Manifest integrity checks.
-rem Check failure must NOT stop the offline UI, but it must never enable game login.
-set "LALA_STARTUP_RESOURCE_STATUS=not_checked"
-echo [LaLa] Checking official public versions and both Manifests before launching...
-"%VENV_PY%" -m lala_core.resource_inspector --online --manifests --json --timeout 3
-if errorlevel 1 (
-    set "LALA_STARTUP_RESOURCE_STATUS=failed"
-    echo [LaLa] WARNING: Official resource check failed. Launching OFFLINE UI only.
-    if "%DIAGNOSE_ONLY%"=="1" (
+rem Diagnostic mode checks manifests but never downloads game resources or opens GUI.
+if "%DIAGNOSE_ONLY%"=="1" (
+    echo [LaLa] Diagnosing official versions and two Manifests...
+    "%VENV_PY%" -m lala_core.resource_inspector --online --parse-manifests --json --timeout 10
+    if errorlevel 1 (
         echo [LaLa] Diagnostic mode: no GUI opened. Copy only the error message above.
         pause
         exit /b 1
     )
-) else (
-    set "LALA_STARTUP_RESOURCE_STATUS=transport_checked"
-    echo [LaLa] Manifest transfer integrity checked; game protocol remains unverified.
-)
-if "%DIAGNOSE_ONLY%"=="1" (
     echo [LaLa] Diagnostic mode complete. Login remains disabled.
     pause
     exit /b 0
 )
 
-echo [LaLa] Starting LaLa desktop UI...
+rem MANDATORY: verify two current Manifests and install ALL required Bundles
+rem into the user's private LaLa cache. Any failure blocks GUI entry.
+set "LALA_STARTUP_RESOURCE_STATUS=not_checked"
+echo [LaLa] Checking official indexes and installing missing game resources...
+"%VENV_PY%" -m lala_core.resource_bootstrap --online --install --timeout 20
+if errorlevel 1 goto :resource_install_error
+set "LALA_STARTUP_RESOURCE_STATUS=installed"
+echo [LaLa] Official resource install verified. Starting LaLa desktop UI...
 rem Launch through Python's subprocess.Popen so the success code reflects
 rem process creation, NOT the previous failed CDN preflight ERRORLEVEL.
 rem pythonw has no console; the GUI inherits LALA_STARTUP_RESOURCE_STATUS.
@@ -182,6 +180,12 @@ goto :failed
 :install_error
 echo [LaLa] ERROR: Unable to install Pillow.
 echo [LaLa] Check network access or Python compatibility.
+goto :failed
+
+:resource_install_error
+echo [LaLa] ERROR: Official resources are missing or invalid.
+echo [LaLa] LaLa remains CLOSED until required resources are installed.
+echo [LaLa] Check free disk space, network access, or use --diagnose.
 goto :failed
 
 :launch_error

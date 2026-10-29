@@ -5,6 +5,7 @@ BAT 的官方資源檢查可能故意以非零碼結束，但離線 GUI 應正�
 避免 cmd.exe 的 start 命令沿用前一段的 ERRORLEVEL 誤報失敗。
 """
 from pathlib import Path
+from lala_core.resource_bootstrap import verify_installed
 import subprocess
 import sys
 
@@ -16,6 +17,9 @@ def launch_gui(python_executable=None, *, popen=None):
     pythonw = python_executable.with_name("pythonw.exe")
     if not pythonw.is_file():
         raise FileNotFoundError("專案虛擬環境缺少 pythonw.exe")
+    # Also blocks launching GUI directly via the Pythonw bridge when BAT
+    # validation was skipped. No installation = no GUI entry.
+    verify_installed()
     spawn = subprocess.Popen if popen is None else popen
     # 沒有傳入 env，讓子程序繼承 BAT 設定的離線自檢狀態；
     # 不觸碰全域 Python、遊戲安裝路徑或角色資料。

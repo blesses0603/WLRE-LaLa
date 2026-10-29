@@ -55,16 +55,16 @@ class LauncherContractTests(unittest.TestCase):
 
     def test_boot_preflight_before_gui_and_skip_during_ci_check(self):
         # A single combined call must run after Pillow verification, before the GUI.
-        call = ('"%VENV_PY%" -m lala_core.resource_inspector '
-                '--online --manifests --json --timeout 3')
+        call = ('"%VENV_PY%" -m lala_core.resource_bootstrap '
+                '--online --install --timeout 20')
         self.assertIn(call, self.content)
         self.assertLess(self.content.index('if "%CHECK_ONLY%"=="1" ('),
                         self.content.index(call))
         self.assertLess(self.content.index(call),
                         self.content.index('"%VENV_PY%" -m lala_desktop'))
-        self.assertIn('set "LALA_STARTUP_RESOURCE_STATUS=failed"', self.content)
-        self.assertIn('set "LALA_STARTUP_RESOURCE_STATUS=transport_checked"', self.content)
-        self.assertIn("Launching OFFLINE UI only.", self.content)
+        self.assertIn('set "LALA_STARTUP_RESOURCE_STATUS=installed"', self.content)
+        self.assertIn('if errorlevel 1 goto :resource_install_error', self.content)
+        self.assertIn("LaLa remains CLOSED until required resources are installed.", self.content)
         self.assertIn('CI: --check skips network and GUI.', self.content)
         self.assertIn('Diagnostic: --diagnose keeps network result visible.', self.content)
 
@@ -89,13 +89,13 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn('if exist "%VENV_DIR%\\Scripts\\pythonw.exe" (', self.content)
         self.assertIn('"%VENV_PY%" -m lala_desktop.launcher', self.content)
         self.assertNotIn('start "" "%VENV_DIR%\\Scripts\\pythonw.exe"', self.content)
-        self.assertLess(self.content.index("LALA_STARTUP_RESOURCE_STATUS=failed"),
+        self.assertLess(self.content.index("LALA_STARTUP_RESOURCE_STATUS=installed"),
                         self.content.index("pythonw.exe"))
         self.assertIn('"%VENV_PY%" -m lala_desktop', self.content)
 
     def test_launcher_uses_fresh_process_result_after_failed_resource_check(self):
         self.assertIn('"%VENV_PY%" -m lala_desktop.launcher', self.content)
-        self.assertLess(self.content.index("LALA_STARTUP_RESOURCE_STATUS=failed"),
+        self.assertLess(self.content.index("LALA_STARTUP_RESOURCE_STATUS=installed"),
                         self.content.index('"%VENV_PY%" -m lala_desktop.launcher'))
         self.assertIn("if errorlevel 1 goto :launch_error", self.content)
 
