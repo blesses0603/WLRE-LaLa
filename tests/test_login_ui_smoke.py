@@ -95,6 +95,79 @@ class LoginWindowTests(unittest.TestCase):
             finally:
                 root.destroy()
 
+    def test_strict_role_snapshot_is_shown_but_not_marked_online(self):
+        from lala_desktop.app import LaLaDesktop
+        from lala_desktop import login_tools
+        from lala_core.legacy_login_trial import LegacyTrialResult, LegacyRoleTrialResult
+        from unittest.mock import Mock
+        import time
+
+        fake = Mock()
+        fake.authenticate.return_value = LegacyTrialResult(True, True, (1,))
+        fake.select_role.return_value = LegacyRoleTrialResult(
+            1, True, False, True, 6789, "測試玩家", 110, 25, 47)
+        with patch.object(login_tools, "verify_installed",
+                          return_value={"resources_installed": True}), \
+             patch.object(login_tools, "LegacyLoginTrial", return_value=fake):
+            root = LaLaDesktop()
+            try:
+                root.open_feature("accounts")
+                root.update()
+                dialog = root._feature_windows["accounts"]
+                def descendants(widget):
+                    for child in widget.winfo_children():
+                        yield child
+                        yield from descendants(child)
+                widgets = list(descendants(dialog))
+                fields = [w for w in widgets if type(w) is tk.Entry]
+                checkbox = next(w for w in widgets if type(w) is tk.Checkbutton)
+                buttons = {w.label: w for w in widgets if getattr(w, "label", "")}
+                fields[0].insert(0, "fake")
+                fields[1].insert(0, "fake")
+                checkbox.invoke()
+                buttons["登入"].invoke()
+                for _ in range(40):
+                    root.update()
+                    if "readonly" in [str(w.cget("state")) for w in widgets
+                                      if w.winfo_class() == "TCombobox"]:
+                        break
+                    time.sleep(.015)
+                # Ensure login worker GUI message was consumed before selecting.
+                for _ in range(40):
+                    root.update()
+                    if any(str(root.getvar(w.cget("textvariable"))).find("等待選角") >= 0
+                           for w in widgets if isinstance(w, tk.Label)
+                           and w.cget("textvariable")):
+                        break
+                    time.sleep(.015)
+                buttons["選擇角色"].invoke()
+                for _ in range(60):
+                    root.update()
+                    if fake.select_role.called and any(
+                        "S3-1 角色資料完整解析" in
+                        str(root.getvar(w.cget("textvariable")))
+                        for w in widgets if isinstance(w, tk.Label)
+                        and w.cget("textvariable")
+                    ):
+                        break
+                    time.sleep(.015)
+                fake.select_role.assert_called_once_with(1)
+                labels = [str(root.getvar(w.cget("textvariable")))
+                          for w in widgets if isinstance(w, tk.Label)
+                          and w.cget("textvariable")]
+                self.assertTrue(any("6789" in label and "110" in label
+                                    and "25, 47" in label for label in labels), labels)
+                self.assertTrue(any("S3-1 角色資料完整解析" in label
+                                    for label in labels), labels)
+                self.assertFalse(dialog._lala_login_coordinator.session.view().connected)
+                buttons["中斷"].invoke()
+                labels = [str(root.getvar(w.cget("textvariable")))
+                          for w in widgets if isinstance(w, tk.Label)
+                          and w.cget("textvariable")]
+                self.assertFalse(any("測試玩家" in label for label in labels))
+            finally:
+                root.destroy()
+
     def test_main_header_disconnect_uses_login_controller(self):
         from lala_desktop.app import LaLaDesktop
         root = LaLaDesktop()
