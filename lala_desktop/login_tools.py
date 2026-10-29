@@ -122,6 +122,12 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                         status.set("S3-1 角色資料完整解析，S1-11 初始化確認已收到；"
                                    "試驗連線已關閉。仍非長連線正式角色同步。")
                     else:
+                        # select_role() closes the trial socket even on failure.
+                        # Do not leave stale slots selectable as if still online.
+                        state["client"] = None
+                        state["slots"] = ()
+                        role_name.set("")
+                        role_picker.configure(values=(), state="disabled")
                         role_info.set("角色資料：未完成，請查看上方訊息。")
                         status.set(message)
         except Empty:
