@@ -24,6 +24,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
     parent._lala_login_coordinator = coordinator
     parent.winfo_toplevel()._lala_login_coordinator = coordinator
     status = tk.StringVar(master=parent, value="尚未登入。舊版分流可手動試驗，非正式服驗收。")
+    role_info = tk.StringVar(master=parent, value="角色資料：尚未同步。")
     choices = {
         f"{name}（{line_id}）": line_id
         for line_id, (name, host, port) in LINE_SNAPSHOT.items()
@@ -95,6 +96,9 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                     state["login"] = False
                     login_button.set_enabled(True)
                     if isinstance(result, LegacyTrialResult):
+                        role_info.set("已取得舊版角色槽位：" +
+                                      "、".join(str(x) for x in result.role_slots) +
+                                      "。等待選角後的 S3-1 角色資料。")
                         state["slots"] = result.role_slots
                         role_picker.configure(
                             values=tuple(str(x) for x in result.role_slots),
@@ -104,13 +108,21 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                                    "已取得角色槽位；尚未獨立證實目前官方伺服器身分。")
                     else:
                         state["slots"] = ()
+                        role_info.set("角色資料：未取得，舊版登入未成功。")
                         status.set(message)
                 elif kind == "role":
                     state["role"] = False
                     if isinstance(result, LegacyRoleTrialResult):
-                        status.set("舊版角色選擇收到世界資料訊號，試驗連線已結束；"
-                                   "尚未完成正式角色同步。")
+                        state["client"] = None  # the test socket was closed
+                        state["slots"] = ()
+                        role_picker.configure(values=(), state="disabled")
+                        role_info.set(
+                            f"已解析角色：{result.character_name}（角色 ID {result.role_id}）"
+                            f"｜場景 {result.scene}｜座標 {result.x}, {result.y}。")
+                        status.set("S3-1 角色資料完整解析，S1-11 初始化確認已收到；"
+                                   "試驗連線已關閉。仍非長連線正式角色同步。")
                     else:
+                        role_info.set("角色資料：未完成，請查看上方訊息。")
                         status.set(message)
         except Empty:
             pass
@@ -177,6 +189,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
         generation = state["generation"]
         state["client"], state["slots"] = client, ()
         role_name.set("")
+        role_info.set("角色資料：正在驗證，尚未取得。")
         role_picker.configure(state="disabled", values=())
         state["login"] = True
         login_button.set_enabled(False)
@@ -207,6 +220,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
         state["slots"] = ()
         coordinator.cancel()
         role_name.set("")
+        role_info.set("角色資料：已中斷，清除先前的角色資訊。")
         role_picker.configure(state="disabled", values=())
         password.delete(0, "end")
         allow_legacy.set(False)
@@ -252,6 +266,9 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
     tk.Label(parent, textvariable=status, font=(font_name, 10),
              fg=t.CYAN, bg=t.PANEL, wraplength=660, justify="left",
              anchor="w").pack(fill="x", padx=24, pady=(7, 2))
+    tk.Label(parent, textvariable=role_info, font=(font_name, 10),
+             fg=t.TEXT, bg=t.PANEL, wraplength=660, justify="left",
+             anchor="w").pack(fill="x", padx=24, pady=(0, 4))
     tk.Label(parent,
              text="分流來源：舊版 server_list.json。XOR 非保密通道；"
                   "手動登入成功僅表示舊協定回覆，無正式服身分保證。",
