@@ -6,7 +6,7 @@
 
 - Windows（`0.2.0-dev`，P1 開發候選）：Tkinter 經典 LaLa 首頁（十張資訊卡、圓形功能入口、左下聊天、右側小地圖與事件／戰場分頁），並保留 27 項功能的搜尋與獨立視窗；**所有桌面視窗固定 16:9，停用最大化與拖曳縮放**。
 - Android（`0.1.0-dev`）：Kivy 深藍圓角卡片與橫向圓形快捷列原型；沒有 APK、前景服務或懸浮窗。
-- 共用 Core：27 項功能需求註冊表、操作安全閘門、權威快照、官方資源 SHA-256 稽核、**官方版本／兩包 Manifest 唯讀檢查**、製作／遠征／地圖離線規劃、經驗效率計算、唯讀戰鬥候選、社交事件記錄、UI 偏好安全存檔及診斷資訊遮罩。
+- 共用 Core：27 項功能需求註冊表、操作安全閘門、權威快照、官方資源 SHA-256 稽核、**官方版本／兩包 Manifest 唯讀檢查、可選 YooAsset 2.2.5 全量 Asset/Bundle 索引解析、舊版 1262 封包唯讀回歸測試**、製作／遠征／地圖離線規劃、經驗效率計算、唯讀戰鬥候選、社交事件記錄、UI 偏好安全存檔及診斷資訊遮罩。
 - Windows 可用離線工具：經驗效率、材料與背包、遠征資格（使用者手動輸入，不連線或送出封包）。新增使用者**手動觸發**的官方公開版本與 Manifest 查詢，不需帳密、不送出遊戲命令。
 - 測試：純 Python `unittest` 與 CI 語法檢查。
 - **尚無遊戲伺服器登入會話、完整資源解析／Bundle 同步、戰鬥、自動化、真實角色資料。** 公開官方版本／Manifest 的唯讀查詢不代表遊戲服務已接通。
@@ -47,10 +47,12 @@ Windows 主畫面右側小地圖、事件紀錄與戰場陣形**共用使用者�
 
     py -3 -m lala_core.resource_inspector --online
     py -3 -m lala_core.resource_inspector --online --manifests --json
+    py -3 -m lala_core.resource_inspector --online --parse-manifests --json
 
 - 只查詢官方公開 HTTPS 版本對照、兩包獨立修訂號與選用的 Manifest .hash/.bytes；不將 1275 寫死。
-- 版本查詢與 CRC32LE／SHA-256 完整性檢查成功**不代表完成 YooAsset 全量解碼、Schema、伺服器協定驗證**；can_login 永遠為 false。
-- 不輸出帳密、不寫入遊戲安裝目錄、不儲存原始 Manifest 或下載 Bundle；GitHub CI 使用模擬資料，不主動連官方站。
+- 使用者可按「解析資源索引」或使用 `--parse-manifests`，針對 CRC32LE 校驗通過的官方 `.bytes` 進行 YooAsset 2.2.5 全量 Asset／Bundle／相依索引解析；只輸出摘要，不存完整路徑。**這不代表 Unity Bundle 解包、遊戲資料 Schema 或伺服器協定已驗證**，`can_login` 永遠為 false。
+- 不輸出帳密、不寫入遊戲安裝目錄、不儲存原始 Manifest 或完整 AssetPath 索引、不下載 Bundle；GitHub CI 使用模擬資料，不主動連官方站。
+- 另有 1262 封包的**離線唯讀**解碼與背包、金幣、位置、回合重播，僅供新版規格比對；未核對當前較新的官方伺服器封包，不開放此解碼器用於登入。
 
 詳細操作與安全範圍見 docs/官方資源唯讀檢查.md。
 
