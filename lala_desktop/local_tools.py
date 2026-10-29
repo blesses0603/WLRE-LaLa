@@ -144,7 +144,7 @@ def _build_resource_inspector(parent, *, font_name, button_factory):
             control.set_enabled(True)
         status.set(message)
 
-    def request(manifests):
+    def request(manifests, *, parse=False):
         if state["running"]:
             return
         state["running"] = True
@@ -154,11 +154,18 @@ def _build_resource_inspector(parent, *, font_name, button_factory):
 
         def worker():
             try:
-                report = inspect(with_manifests=manifests)
+                report = inspect(with_manifests=manifests,
+                                 with_parsed_catalog=parse)
+                if parse:
+                    detail = "；".join(
+                        f"{name}：{entry['asset_count']} Asset／{entry['bundle_count']} Bundle"
+                        for name, entry in report["manifests"].items()
+                    )
+                else:
+                    detail = "兩包 Manifest 傳輸校驗通過" if manifests else "僅取得版本資訊"
                 text = (
                     f"ExeVer {report['exe_version']}；DataVer {report['data_version']}。"
-                    f"{'兩份 Manifest 傳輸完整性通過。' if manifests else '僅取得版本資訊。'}"
-                    " 尚未驗證資源解碼與正式服登入。"
+                    f"{detail}。遊戲資料 Schema／正式服協定未驗收。"
                 )
             except OfficialVersionError as error:
                 text = "官方資源檢查失敗：" + str(error) + "；登入保持停用。"
@@ -173,6 +180,7 @@ def _build_resource_inspector(parent, *, font_name, button_factory):
     controls = [
         button_factory(area, "查詢官方版本", lambda: request(False)),
         button_factory(area, "驗證兩包 Manifest", lambda: request(True)),
+        button_factory(area, "解析資源索引", lambda: request(True, parse=True)),
     ]
     for control in controls:
         control.pack(side="left", padx=(0, 8))

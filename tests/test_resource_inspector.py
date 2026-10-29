@@ -63,6 +63,34 @@ class InspectorTests(unittest.TestCase):
                 main([])
         self.assertEqual(caught.exception.code, 2)
 
+    def test_parsed_catalog_path_never_unlocks_login_or_refetches(self):
+        from lala_core.yooasset_index import ParsedCatalog
+        from lala_core.manifest_transport import ManifestPair, ManifestReceipt
+        from lala_core import resource_inspector
+        from unittest.mock import Mock
+        obs = observation()
+        receipts = tuple(ManifestReceipt(name, obs.data_version, revision,
+                                         12, "a"*64, "00000000")
+                         for name, revision in obs.package_versions)
+        pair = ManifestPair(obs.exe_version, obs.data_version, receipts)
+        indexes = []
+        for name, revision in obs.package_versions:
+            index = Mock()
+            index.package = name
+            index.summary.return_value = {"asset_count": 2, "bundle_count": 1,
+                                          "asset_schema_validated": False}
+            indexes.append(index)
+        with patch.object(resource_inspector, "fetch_parsed_catalog",
+                          return_value=ParsedCatalog(pair, tuple(indexes))) as parsed, \
+             patch.object(resource_inspector, "fetch_manifest_receipts") as direct:
+            result = resource_inspector.inspect(observer=observation,
+                                                with_parsed_catalog=True)
+        parsed.assert_called_once()
+        direct.assert_not_called()
+        self.assertTrue(result["catalog_parsed"])
+        self.assertFalse(result["can_login"])
+        self.assertEqual(result["manifests"]["DataPackage"]["asset_count"], 2)
+
     def test_cli_prints_only_approved_observation(self):
         output = StringIO()
         with patch("lala_core.resource_inspector.observe_official_versions",

@@ -6,11 +6,13 @@
 import argparse
 import json
 from .manifest_transport import fetch_manifest_receipts
+from .yooasset_index import fetch_parsed_catalog
 from .official_versions import (OfficialVersionError, observe_official_versions,
                                 fetch_public_bytes)
 
 
-def inspect(*, with_manifests=False, observer=None, manifest_fetcher=None):
+def inspect(*, with_manifests=False, with_parsed_catalog=False,
+            observer=None, manifest_fetcher=None):
     observer = observe_official_versions if observer is None else observer
     observation = observer()
     result = {
@@ -24,8 +26,11 @@ def inspect(*, with_manifests=False, observer=None, manifest_fetcher=None):
         "protocol_compatible": False,
         "can_login": False,
     }
-    if with_manifests:
-        pair = fetch_manifest_receipts(observation, fetcher=manifest_fetcher)
+    if with_manifests or with_parsed_catalog:
+        catalog = (fetch_parsed_catalog(observation, fetcher=manifest_fetcher)
+                   if with_parsed_catalog else None)
+        pair = catalog.transport if catalog is not None else fetch_manifest_receipts(
+            observation, fetcher=manifest_fetcher)
         result.update(
             status="manifest_transport_checked_only",
             manifest_transport_checked=True,
@@ -37,6 +42,16 @@ def inspect(*, with_manifests=False, observer=None, manifest_fetcher=None):
                 } for item in pair.manifests
             },
         )
+        if catalog is not None:
+            result.update(
+                status="yooasset_index_parsed_only",
+                catalog_parsed=True,
+                manifests={
+                    index.package: {**result["manifests"][index.package], **index.summary()}
+                    for index in catalog.indexes
+                },
+            )
+            # This DOES NOT validate game data schema or game-server protocol.
     return result
 
 
@@ -47,6 +62,8 @@ def main(argv=None):
                         help="明確允許向已核對的官方 HTTPS 主機發出唯讀 GET")
     parser.add_argument("--manifests", action="store_true",
                         help="額外讀取兩份 Manifest.hash/.bytes，僅驗證傳輸 CRC")
+    parser.add_argument("--parse-manifests", action="store_true",
+                        help="解析兩份 2.2.5 Manifest 全量 Asset/Bundle 索引，不解鎖登入")
     parser.add_argument("--json", action="store_true",
                         help="僅輸出非敏感版號、長度與摘要")
     parser.add_argument("--timeout", type=float, default=10.0,
@@ -61,6 +78,7 @@ def main(argv=None):
         # BAT 啟動使用 3 秒/請求的上限，失敗仍可進入離線畫面。
         report = inspect(
             with_manifests=args.manifests,
+            with_parsed_catalog=args.parse_manifests,
             observer=lambda: observe_official_versions(
                 fetcher=lambda url: fetch_public_bytes(url, timeout=args.timeout)),
             manifest_fetcher=lambda url, *, limit: fetch_public_bytes(
@@ -76,10 +94,13 @@ def main(argv=None):
         print("官方公開 DataVer：", report["data_version"])
         for package, revision in report["package_versions"].items():
             print(package + "：", revision)
-        if args.manifests:
+        if args.manifests or args.parse_manifests:
             print("Manifest 傳輸檢查：通過（CRC32LE／SHA-256）")
             print("資源版本識別：", report["catalog_identity"])
-        print("正式服登入／資源解碼：未驗收，不可使用")
+        if args.parse_manifests:
+            for name, entry in report["manifests"].items():
+                print(f"{name}：{entry['asset_count']} Asset、{entry['bundle_count']} Bundle")
+        print("遊戲資料 Schema／正式服協定：未驗收，不可登入")
     return 0
 
 
