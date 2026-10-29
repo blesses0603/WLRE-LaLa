@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import struct
 
 from .login import LoginError, validate_credentials
-from .wire import ObservedPacket, ReadOnlyFrameDecoder, WireDecodeError
+from .wire import ObservedPacket, ReadOnlyFrameDecoder, WireDecodeError, ReadOnlyReader
 
 
 OLD_RX_XOR = OLD_TX_XOR = 0xAD
@@ -62,3 +62,40 @@ def decode_legacy_reply(packet: ObservedPacket, *, expected_kind: int
 def decoder_for_legacy_fixture() -> ReadOnlyFrameDecoder:
     """Not a current-live protocol adapter; deliberately requires explicit name."""
     return ReadOnlyFrameDecoder(xor_key=OLD_RX_XOR, profile="legacy-1262")
+
+
+def parse_legacy_role_slots(packet: ObservedPacket) -> tuple[int, ...]:
+    """Read-only, exact old S63-1 role records; names and account data discarded.
+
+    The old client selects role *slots* 1/2, never guessed character IDs.
+    This is not proof that the present-day official server uses this schema.
+    """
+    if not isinstance(packet, ObservedPacket) or (packet.main, packet.sub) != (63, 1):
+        raise WireDecodeError("不是舊版角色清單")
+    r = ReadOnlyReader(packet.payload)
+    slots = []
+    while r.remaining:
+        if len(slots) >= 2:
+            raise WireDecodeError("舊版角色清單槽位數超過限制")
+        slot = r.u8()
+        if slot not in (1, 2) or slot in slots:
+            raise WireDecodeError("舊版角色槽位錯誤或重複")
+        chars = r.u8()
+        if chars % 2:
+            raise WireDecodeError("舊版角色名稱 UTF-16LE 長度不合法")
+        try:
+            r.take(chars).decode("utf-16le")
+        except UnicodeDecodeError as exc:
+            raise WireDecodeError("舊版角色名稱編碼錯誤") from exc
+        # Old layout: level, element, four HP/SP values, exp, gold,
+        # sex/head/palettes/degree/job; discard all private details.
+        r.take(1 + 1 + 4*4 + 8 + 4 + 1 + 1 + 4 + 4 + 1 + 1)
+        r.u16()  # stage ID; no trust in the current official layout
+        r.take(8)  # delete time double, uninterpreted
+        locked = r.u8()
+        if locked not in (0, 1):
+            raise WireDecodeError("舊版角色鎖定旗標不合法")
+        # 1262 role_list bonuses: four u32, u16, two i32, two u32.
+        r.take(4*4 + 2 + 4*2 + 4*2)
+        slots.append(slot)
+    return tuple(sorted(slots))

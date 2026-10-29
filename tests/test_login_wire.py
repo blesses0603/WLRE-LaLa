@@ -5,7 +5,7 @@ import unittest
 from lala_core.login import LoginError
 from lala_core.login_wire import (
     OLD_TX_XOR, build_legacy_request, decode_legacy_reply,
-    decoder_for_legacy_fixture,
+    decoder_for_legacy_fixture, parse_legacy_role_slots,
 )
 from lala_core.wire import ObservedPacket, WireDecodeError
 
