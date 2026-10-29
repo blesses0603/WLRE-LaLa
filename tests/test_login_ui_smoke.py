@@ -168,6 +168,64 @@ class LoginWindowTests(unittest.TestCase):
             finally:
                 root.destroy()
 
+    def test_failed_role_trial_clears_stale_role_selection(self):
+        from lala_desktop.app import LaLaDesktop
+        from lala_desktop import login_tools
+        from lala_core.login import LoginError
+        from lala_core.legacy_login_trial import LegacyTrialResult
+        from unittest.mock import Mock
+        import time
+
+        fake = Mock()
+        fake.authenticate.return_value = LegacyTrialResult(True, True, (1,))
+        fake.select_role.side_effect = LoginError("模擬角色回覆中止")
+        with patch.object(login_tools, "verify_installed",
+                          return_value={"resources_installed": True}), \
+             patch.object(login_tools, "LegacyLoginTrial", return_value=fake):
+            root = LaLaDesktop()
+            try:
+                root.open_feature("accounts")
+                root.update()
+                dialog = root._feature_windows["accounts"]
+
+                def descendants(widget):
+                    for child in widget.winfo_children():
+                        yield child
+                        yield from descendants(child)
+
+                widgets = list(descendants(dialog))
+                fields = [w for w in widgets if type(w) is tk.Entry]
+                checkbox = next(w for w in widgets if type(w) is tk.Checkbutton)
+                buttons = {w.label: w for w in widgets if getattr(w, "label", "")}
+                role_box = [w for w in widgets
+                            if w.winfo_class() == "TCombobox"][1]
+                fields[0].insert(0, "fake")
+                fields[1].insert(0, "fake")
+                checkbox.invoke()
+                buttons["登入"].invoke()
+                for _ in range(80):
+                    root.update()
+                    if str(role_box.cget("state")) == "readonly":
+                        break
+                    time.sleep(.015)
+                self.assertEqual(str(role_box.cget("state")), "readonly")
+                buttons["選擇角色"].invoke()
+                for _ in range(80):
+                    root.update()
+                    if any("模擬角色回覆中止" in str(root.getvar(w.cget("textvariable")))
+                           for w in widgets if isinstance(w, tk.Label)
+                           and w.cget("textvariable")):
+                        break
+                    time.sleep(.015)
+                fake.select_role.assert_called_once_with(1)
+                self.assertEqual(str(role_box.cget("state")), "disabled")
+                self.assertEqual(role_box.get(), "")
+                self.assertFalse(dialog._lala_login_coordinator.session.view().connected)
+                buttons["選擇角色"].invoke()
+                fake.select_role.assert_called_once()
+            finally:
+                root.destroy()
+
     def test_main_header_disconnect_uses_login_controller(self):
         from lala_desktop.app import LaLaDesktop
         root = LaLaDesktop()
