@@ -4,7 +4,7 @@ import struct
 import unittest
 
 from lala_core.login import LoginError
-from lala_core.legacy_login_trial import LegacyLoginTrial
+from lala_core.legacy_login_trial import LegacyLoginTrial, MAX_ROLE_PACKETS
 from lala_core.login_wire import OLD_TX_XOR
 from lala_core.wire import ObservedPacket
 
@@ -105,8 +105,12 @@ class LegacyLoginTrialTests(unittest.TestCase):
         self.assertFalse(selected.ongoing_connection)
         self.assertFalse(selected.official_identity_verified)
         self.assertTrue(sockets[1].closed)
-        select = bytes(x ^ OLD_TX_XOR for x in sockets[1].sent[-1])
-        self.assertEqual(select[4:], b"\x3f\x02\x01")
+        self.assertTrue(selected.init_acks_sent)
+        self.assertEqual(len(sockets[1].sent), 4)
+        outbound = [bytes(x ^ OLD_TX_XOR for x in raw)[4:]
+                    for raw in sockets[1].sent[1:]]
+        self.assertEqual(outbound, [
+            b"\x3f\x02\x01", b"\x0c\x01", b"\x03\x02"])
 
     def test_s1_11_alone_is_not_character_sync(self):
         a, sockets, _ = self.setup_adapter(
@@ -241,14 +245,14 @@ class LegacyLoginTrialTests(unittest.TestCase):
         trial, sockets, _ = self.setup_adapter(
             [frame(63, 7, b"\0\0")],
             [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
-             frame(3, 1, world_player()) + frame(9, 9) * 513],
+             frame(3, 1, world_player()) + frame(9, 9) * (MAX_ROLE_PACKETS + 1)],
         )
         trial.authenticate(line_id=101, account="synthetic_user",
                            password="synthetic_pass", consent=True)
         with self.assertRaises(LoginError) as error:
             trial.select_role(1)
         message = str(error.exception)
-        self.assertIn("選角試驗超過 512 個封包", message)
+        self.assertIn(f"選角試驗超過 {MAX_ROLE_PACKETS} 個封包", message)
         self.assertIn("S3-1：已收到", message)
         self.assertIn("S1-11：未收到", message)
         self.assertNotIn("synthetic_user", message)
@@ -260,7 +264,7 @@ class LegacyLoginTrialTests(unittest.TestCase):
         trial, sockets, _ = self.setup_adapter(
             [frame(63, 7, b"\0\0")],
             [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
-             frame(8, 8) * 513],
+             frame(8, 8) * (MAX_ROLE_PACKETS + 1)],
         )
         trial.authenticate(line_id=101, account="fake",
                            password="fake", consent=True)
@@ -279,3 +283,48 @@ class LegacyLoginTrialTests(unittest.TestCase):
         self.assertIn("帳號驗證試驗超過 512 個封包", str(error.exception))
         self.assertEqual(len(opened), 1)
         self.assertTrue(sockets[0].closed)
+
+    def test_role_init_after_more_than_512_old_style_events(self):
+        # Original capture contains 1,848 S2C packets across its session.
+        # A packet burst above 512 must not be a false init failure.
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(9, 9) * 513 + frame(3, 1, world_player())
+             + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        result = trial.select_role(1)
+        self.assertTrue(result.initial_data_complete)
+        self.assertTrue(result.init_acks_sent)
+        self.assertTrue(sockets[1].closed)
+
+    def test_partial_formal_stream_frame_continues_after_select_role(self):
+        world = frame(3, 1, world_player())
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1))
+             + world[:2],
+             world[2:] + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        result = trial.select_role(1)
+        self.assertTrue(result.initial_data_complete)
+        self.assertEqual(result.role_id, 654321)
+        self.assertTrue(result.init_acks_sent)
+
+    def test_preselection_coalesced_role_info_is_not_trusted(self):
+        # Formally observed BEFORE C63-2: cannot prove role selected.
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1))
+             + frame(3, 1, world_player()) + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        with self.assertRaises(LoginError):
+            trial.select_role(1)
+        self.assertEqual(len(sockets[1].sent), 2)
+        self.assertTrue(sockets[1].closed)
