@@ -22,10 +22,13 @@ VERSION_MAP_URL = ROOT + "/ResourcePath_PC.dat"
 PACKAGES = ("DataPackage", "MainPackage")
 MAX_VERSION_BYTES = 16384
 _GAME_VERSION = re.compile(r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}\Z")
+# 新版實機回報 DataVer 長度 8；四段版號（例如 1.3.21.0）亦屬安全的純數字路徑。
+# 保留 ExeVer 三段格式，不能因為需要診斷而接受任意檔名。
+_DATA_VERSION = re.compile(r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?\Z")
 _PACKAGE_REVISION = re.compile(r"[1-9][0-9]{0,5}_20[0-9]{2}(?:_[0-9]{2}){6}\Z")
 _APPROVED_PATH = re.compile(
     r"/WLN/TW/(?:ResourcePath_PC\.dat|"
-    r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}/ResourcesPC/AssetBundle/"
+    r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?/ResourcesPC/AssetBundle/"
     r"(?:DataPackage|MainPackage)\.(?:version|hash|bytes))\Z"
 )
 
@@ -77,7 +80,7 @@ def require_public_url(url: str) -> str:
 
 
 def package_url(data_version: str, package: str, extension: str) -> str:
-    if (not isinstance(data_version, str) or not _GAME_VERSION.fullmatch(data_version)
+    if (not isinstance(data_version, str) or not _DATA_VERSION.fullmatch(data_version)
             or package not in PACKAGES or extension not in ("version", "hash", "bytes")):
         raise OfficialVersionError("Package 或 DataVer 不合法")
     return require_public_url(
@@ -169,11 +172,16 @@ def parse_version_map(body: bytes) -> tuple[str, str]:
             if not isinstance(value, str):
                 kind = "缺少" if field not in row else "不是文字"
                 raise OfficialVersionError(f"官方版本表第 {index} 筆 {field} {kind}；已停止自檢")
-            if not _GAME_VERSION.fullmatch(value):
-                # 只記錄欄位／長度，不輸出未信任的完整值或 URL。
+            pattern = _GAME_VERSION if field == "ExeVer" else _DATA_VERSION
+            if not pattern.fullmatch(value):
+                # 僅在純數字和半形小數點時顯示版本值，避免不可信字串
+                # 夾帶 URL、Token、控制字元或其他機密內容進入日誌。
+                observed = (f"；收到的版本文字：{value}"
+                            if re.fullmatch(r"[0-9.]{1,32}", value) else "")
+                expected = "三段數字" if field == "ExeVer" else "三或四段數字"
                 raise OfficialVersionError(
-                    f"官方版本表第 {index} 筆 {field} 格式不符三段數字"
-                    f"（長度 {len(value)}）；已停止自檢"
+                    f"官方版本表第 {index} 筆 {field} 格式不符{expected}"
+                    f"（長度 {len(value)}{observed}）；已停止自檢"
                 )
         if row["ExeVer"] in versions:
             raise OfficialVersionError(f"官方版本表第 {index} 筆 ExeVer 重複；已停止自檢")

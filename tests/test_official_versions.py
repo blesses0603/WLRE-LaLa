@@ -76,6 +76,32 @@ class VersionsTests(unittest.TestCase):
         with self.assertRaises(OfficialVersionError):
             parse_version_map(gzip.compress(b"x" * (16384 + 1)))
 
+    def test_four_part_dataver_is_safe_and_remains_versioned(self):
+        # 實機目前只確定第 1 筆 DataVer 長度為 8，不臆測真實值。
+        # 針對可能的四段純數字版本格式加入受限支援及白名單路徑。
+        body = (b'[{"ExeVer":"1.3.0","DataVer":"1.3.21.0"},'
+                b'{"ExeVer":"1.4.0","DataVer":"1.3.22.1"}]')
+        self.assertEqual(parse_version_map(body), ("1.4.0", "1.3.22.1"))
+        url = package_url("1.3.21.0", "MainPackage", "version")
+        self.assertIn("/1.3.21.0/ResourcesPC/AssetBundle/", url)
+        self.assertEqual(require_public_url(url), url)
+        for invalid in ("1.3.21.x", "1.3.21.0/../private", "1.3.21.0?x=1",
+                        "1.3.21.0.9", "1.3.21..0"):
+            with self.subTest(version=invalid), self.assertRaises(OfficialVersionError):
+                package_url(invalid, "DataPackage", "version")
+
+    def test_four_part_exever_remains_rejected(self):
+        with self.assertRaisesRegex(OfficialVersionError, "ExeVer 格式不符"):
+            parse_version_map(b'[{"ExeVer":"1.3.0.0","DataVer":"1.3.21.0"}]')
+
+    def test_version_error_shows_only_safe_numeric_values(self):
+        with self.assertRaises(OfficialVersionError) as caught:
+            parse_version_map(b'[{"ExeVer":"1.3.0","DataVer":"1.3..21"}]')
+        self.assertIn("1.3..21", str(caught.exception))
+        with self.assertRaises(OfficialVersionError) as hidden:
+            parse_version_map(b'[{"ExeVer":"1.3.0","DataVer":"token_secret"}]')
+        self.assertNotIn("token_secret", str(hidden.exception))
+
     def test_full_package_revision_not_integer(self):
         revision = "1275_2026_10_21_18_29_38_49"
         self.assertEqual(parse_package_revision(revision.encode()), revision)
