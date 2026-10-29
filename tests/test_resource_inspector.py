@@ -71,3 +71,44 @@ class InspectorTests(unittest.TestCase):
         result = json.loads(output.getvalue())
         self.assertFalse(result["can_login"])
         self.assertEqual(result["exe_version"], "1.4.0")
+
+
+class StartupCliTests(unittest.TestCase):
+    def test_startup_runs_one_combined_check_with_bounded_timeout(self):
+        obs = observation()
+        import zlib
+        from lala_core import resource_inspector
+        from lala_core.manifest_transport import MAX_MANIFEST_BYTES
+        from lala_core.official_versions import VERSION_MAP_URL
+        calls = []
+
+        def fake_fetch(url, *, limit=16384, timeout=10):
+            calls.append((url, limit, timeout))
+            if url == VERSION_MAP_URL:
+                return b'[{"ExeVer":"1.4.0","DataVer":"1.4.22"}]'
+            if url.endswith(".version"):
+                return (b"1280_2026_10_29_12_30_20_40" if "DataPackage." in url
+                        else b"1280_2026_10_29_12_30_20_41")
+            data = b"fake-Data" if "DataPackage." in url else b"fake-Main"
+            if url.endswith(".hash"):
+                return (zlib.crc32(data) & 0xffffffff).to_bytes(4, "little").hex().encode()
+            return data
+
+        result = StringIO()
+        with patch.object(resource_inspector, "fetch_public_bytes", side_effect=fake_fetch):
+            with redirect_stdout(result):
+                self.assertEqual(main(["--online", "--manifests", "--json",
+                                       "--timeout", "3"]), 0)
+        output = json.loads(result.getvalue())
+        self.assertEqual(len(calls), 7)
+        self.assertTrue(all(timeout == 3.0 for _url, _limit, timeout in calls))
+        self.assertEqual(sum(limit == MAX_MANIFEST_BYTES for _url, limit, _t in calls), 2)
+        self.assertTrue(output["manifest_transport_checked"])
+        self.assertFalse(output["can_login"])
+
+    def test_timeout_rejects_zero_and_negative(self):
+        for value in ("0", "-5", "61"):
+            with self.subTest(value=value):
+                with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as failed:
+                    main(["--online", "--timeout", value])
+                self.assertEqual(failed.exception.code, 2)

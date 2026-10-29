@@ -6,7 +6,8 @@
 import argparse
 import json
 from .manifest_transport import fetch_manifest_receipts
-from .official_versions import OfficialVersionError, observe_official_versions
+from .official_versions import (OfficialVersionError, observe_official_versions,
+                                fetch_public_bytes)
 
 
 def inspect(*, with_manifests=False, observer=None, manifest_fetcher=None):
@@ -48,11 +49,23 @@ def main(argv=None):
                         help="額外讀取兩份 Manifest.hash/.bytes，僅驗證傳輸 CRC")
     parser.add_argument("--json", action="store_true",
                         help="僅輸出非敏感版號、長度與摘要")
+    parser.add_argument("--timeout", type=float, default=10.0,
+                        help="各項官方 HTTPS 公開資料請求的逾時秒數（1～60）")
     args = parser.parse_args(argv)
+    if not 1 <= args.timeout <= 60:
+        parser.error("--timeout 必須介於 1 到 60 秒")
     if not args.online:
         parser.error("必須明確加上 --online，才會讀取官方公開版本")
     try:
-        report = inspect(with_manifests=args.manifests)
+        # 合併版本與 Manifest 流程，避免兩次完整查詢重複請求。
+        # BAT 啟動使用 3 秒/請求的上限，失敗仍可進入離線畫面。
+        report = inspect(
+            with_manifests=args.manifests,
+            observer=lambda: observe_official_versions(
+                fetcher=lambda url: fetch_public_bytes(url, timeout=args.timeout)),
+            manifest_fetcher=lambda url, *, limit: fetch_public_bytes(
+                url, limit=limit, timeout=args.timeout),
+        )
     except OfficialVersionError as exc:
         # 只回報安全的錯誤分類；不輸出原始封包、帳密或遠端回應。
         parser.exit(1, "官方唯讀資源檢查失敗：" + str(exc) + "\n")

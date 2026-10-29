@@ -53,6 +53,20 @@ class LauncherContractTests(unittest.TestCase):
         self.assertLess(self.content.index('if "%CHECK_ONLY%"=="1"'),
                         self.content.index('"%VENV_PY%" -m lala_desktop'))
 
+    def test_boot_preflight_before_gui_and_skip_during_ci_check(self):
+        # A single combined call must run after Pillow verification, before the GUI.
+        call = ('"%VENV_PY%" -m lala_core.resource_inspector '
+                '--online --manifests --json --timeout 3')
+        self.assertIn(call, self.content)
+        self.assertLess(self.content.index('if "%CHECK_ONLY%"=="1" ('),
+                        self.content.index(call))
+        self.assertLess(self.content.index(call),
+                        self.content.index('"%VENV_PY%" -m lala_desktop'))
+        self.assertIn('set "LALA_STARTUP_RESOURCE_STATUS=failed"', self.content)
+        self.assertIn('set "LALA_STARTUP_RESOURCE_STATUS=transport_checked"', self.content)
+        self.assertIn("Launching OFFLINE UI only.", self.content)
+        self.assertIn('--check [--py-only] skips network and GUI.', self.content)
+
     def test_launcher_explains_missing_python(self):
         self.assertIn("py -0p", self.content)
         self.assertIn("Python 3.10 is not supported by Pillow 13.", self.content)

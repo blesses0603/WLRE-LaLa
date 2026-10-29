@@ -1,5 +1,6 @@
 """LaLa P0 經典 UI：承襲舊版版面與操作節奏，所有畫面皆為離線預覽。"""
 import tkinter as tk
+import os
 from tkinter import font as tkfont, ttk
 
 from lala_core.features import BY_KEY, FEATURES
@@ -22,6 +23,11 @@ class LaLaDesktop(tk.Tk):
         self._chrome = install_borderless(self)
         self.configure(bg=t.BG)
         self._font = self._choose_font()
+        # BAT 傳入檢查結果供 UI 提示；沒有任何來源能直接解鎖登入。
+        self._startup_resource_status = os.environ.get(
+            "LALA_STARTUP_RESOURCE_STATUS", "not_checked")
+        if self._startup_resource_status not in ("not_checked", "failed", "transport_checked"):
+            self._startup_resource_status = "not_checked"
         self._feature_windows = {}
         self._configure_ttk()
         self._build()
@@ -62,13 +68,21 @@ class LaLaDesktop(tk.Tk):
         brand = self.text(header, "✦  LaLa  ｜  飄流幻境 RE", size=17, bold=True,
                           color=t.SECTION)
         brand.pack(anchor="w")
-        subtitle = self.text(header, "等待登入與角色資料同步  •  正式伺服器尚未接入",
+        startup_line = {
+            "not_checked": "未執行官方資源自檢",
+            "failed": "官方資源自檢未通過，仍可使用離線功能",
+            "transport_checked": "官方 Manifest 傳輸自檢通過，正式服協定尚未驗證",
+        }[self._startup_resource_status]
+        subtitle = self.text(header, startup_line + "  •  正式伺服器尚未接入",
                              size=10, color=t.MUTED)
         subtitle.pack(anchor="w", pady=(3, 0))
         self._chrome.bind_drag(self._top, header, brand, subtitle)
         actions = tk.Frame(top, bg=t.PANEL)
         actions.pack(side="right", padx=12, pady=8)
-        self.text(actions, "● 離線預覽", color=t.WARN, size=10).pack(side="left", padx=11)
+        status_short = "● 自檢通過／離線" if self._startup_resource_status == "transport_checked" else (
+            "● 自檢失敗／離線" if self._startup_resource_status == "failed"
+            else "● 尚未自檢／離線")
+        self.text(actions, status_short, color=t.WARN, size=10).pack(side="left", padx=11)
         self._button(actions, "登入／選角", lambda: self.open_feature("accounts")).pack(side="left", padx=3)
         self._button(actions, "中斷連線", lambda: self._offline_notice(), width=10).pack(side="left", padx=3)
         # 系統白色標題列移除後，保留最小化與關閉的操作入口（不提供最大化）。
