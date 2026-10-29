@@ -47,6 +47,9 @@ jobs:
       - name: Verify repeated startup reuses environment
         shell: cmd
         run: call run_lala.bat --check
+      - name: Verify console-free Python launcher exists
+        shell: cmd
+        run: if not exist .venv\Scripts\pythonw.exe exit /b 1
       - name: Test dependency from isolated local environment
         shell: cmd
         run: .venv\Scripts\python.exe -m unittest discover -s tests -p test_game_buttons.py -v
