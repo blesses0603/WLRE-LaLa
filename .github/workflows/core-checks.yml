@@ -50,6 +50,9 @@ jobs:
       - name: Verify console-free Python launcher exists
         shell: cmd
         run: if not exist .venv\Scripts\pythonw.exe exit /b 1
+      - name: Verify GUI spawn contract (without launching UI)
+        shell: cmd
+        run: .venv\Scripts\python.exe -m unittest discover -s tests -p test_gui_launcher.py -v
       - name: Test dependency from isolated local environment
         shell: cmd
         run: .venv\Scripts\python.exe -m unittest discover -s tests -p test_game_buttons.py -v

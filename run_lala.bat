@@ -76,10 +76,11 @@ if "%DIAGNOSE_ONLY%"=="1" (
 )
 
 echo [LaLa] Starting LaLa desktop UI...
-rem pythonw.exe has no console. "start" also lets this BAT exit immediately.
-rem The GUI receives LALA_STARTUP_RESOURCE_STATUS via inherited environment.
+rem Launch through Python's subprocess.Popen so the success code reflects
+rem process creation, NOT the previous failed CDN preflight ERRORLEVEL.
+rem pythonw has no console; the GUI inherits LALA_STARTUP_RESOURCE_STATUS.
 if exist "%VENV_DIR%\Scripts\pythonw.exe" (
-    start "" "%VENV_DIR%\Scripts\pythonw.exe" -m lala_desktop
+    "%VENV_PY%" -m lala_desktop.launcher
     if errorlevel 1 goto :launch_error
     exit /b 0
 )

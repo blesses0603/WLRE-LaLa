@@ -77,11 +77,17 @@ class LauncherContractTests(unittest.TestCase):
 
     def test_gui_launches_without_covering_console(self):
         self.assertIn('if exist "%VENV_DIR%\\Scripts\\pythonw.exe" (', self.content)
-        self.assertIn('start "" "%VENV_DIR%\\Scripts\\pythonw.exe" -m lala_desktop',
-                      self.content)
+        self.assertIn('"%VENV_PY%" -m lala_desktop.launcher', self.content)
+        self.assertNotIn('start "" "%VENV_DIR%\\Scripts\\pythonw.exe"', self.content)
         self.assertLess(self.content.index("LALA_STARTUP_RESOURCE_STATUS=failed"),
                         self.content.index("pythonw.exe"))
         self.assertIn('"%VENV_PY%" -m lala_desktop', self.content)
+
+    def test_launcher_uses_fresh_process_result_after_failed_resource_check(self):
+        self.assertIn('"%VENV_PY%" -m lala_desktop.launcher', self.content)
+        self.assertLess(self.content.index("LALA_STARTUP_RESOURCE_STATUS=failed"),
+                        self.content.index('"%VENV_PY%" -m lala_desktop.launcher'))
+        self.assertIn("if errorlevel 1 goto :launch_error", self.content)
 
     def test_gui_launcher_exposes_windows_pythonw_errors(self):
         code = (ROOT / "lala_desktop" / "__main__.py").read_text(encoding="utf-8")
