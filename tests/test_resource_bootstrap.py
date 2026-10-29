@@ -27,13 +27,38 @@ def crc(data):
 
 
 def manifest(package, revision):
+    """Synthetic 4 LaLa assets -> 1 Bundle + 1 recursive dependency.
+
+    Extra Data/Main game content MUST NOT be installed.
+    """
     d = struct.pack("<I", 0x00594F4F) + t("2.2.5") + struct.pack("<BBBii", 1, 0, 1, 1, 2)
     d += t("ScriptableBuildPipeline") + t(package) + t(revision) + t("")
-    d += struct.pack("<i", 1) + t("a") + t("Assets/a") + t("guid-a")
-    d += struct.pack("<Hi", 0, 0) + struct.pack("<i", 1)
-    d += t("fake.bundle") + struct.pack("<I", 0)
-    d += t(hashlib.md5(CONTENT, usedforsecurity=False).hexdigest()) + t(crc(CONTENT))
-    return d + struct.pack("<qBHH", len(CONTENT), 0, 0, 0)
+    prefix = "Assets/ResourcesBuild/Data/"
+    if package == "DataPackage":
+        assets = [(prefix + name + ".bytes", 0) for name in (
+            "Eve", "ItemData_C", "SmithData_C", "ScenesData_C")]
+        assets += [(prefix + "NotUsedByLaLa.bytes", 2)]
+        bundles = [
+            ("needed.bundle", (1,)),
+            ("dependency.bundle", ()),
+            ("unrelated.bundle", ()),
+        ]
+    else:
+        assets = [("Assets/ResourcesBuild/Sprite/Unused.prefab", 0)]
+        bundles = [("allgame-main.bundle", ())]
+    d += struct.pack("<i", len(assets))
+    for path, bundle in assets:
+        d += t("asset") + t(path) + t("guid")
+        d += struct.pack("<Hi", 0, bundle)
+    d += struct.pack("<i", len(bundles))
+    for name, dependencies in bundles:
+        d += t(name) + struct.pack("<I", 0)
+        d += t(hashlib.md5(CONTENT, usedforsecurity=False).hexdigest()) + t(crc(CONTENT))
+        d += struct.pack("<qB", len(CONTENT), 0) + struct.pack("<H", 0)
+        d += struct.pack("<H", len(dependencies))
+        for dep in dependencies:
+            d += struct.pack("<i", dep)
+    return d
 
 
 def observed():
@@ -77,10 +102,60 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((a.files_total, a.files_downloaded), (2, 2))
         self.assertFalse(a.can_login)
         self.assertEqual(len(self.urls), 2)
+        self.assertTrue(all("needed.bundle" in url or "dependency.bundle" in url
+                            for url in self.urls), self.urls)
         self.assertTrue(verify_installed(root=self.root, expected_catalog_key=a.catalog_key)["resources_installed"])
         b = self.install()
         self.assertEqual((b.files_downloaded, b.files_reused), (0, 2))
+        self.assertEqual(a.selected_asset_count, 4)
         self.assertEqual(len(self.urls), 2)
+        self.assertEqual(len(list(self.root.rglob("*.bundle"))), 2)
+        self.assertEqual(verify_installed(root=self.root)["schema"], 2)
+
+    def test_ignored_game_bundles_are_never_installed(self):
+        result = self.install()
+        self.assertEqual(result.files_total, 2)
+        self.assertEqual({url.split("/")[-1] for url in self.urls},
+                         {"needed.bundle", "dependency.bundle"})
+        self.assertFalse(any("unrelated" in url or "allgame-main" in url
+                             for url in self.urls))
+
+    def test_receipt_requires_current_lala_feature_selection_policy(self):
+        import json
+        self.install()
+        receipt = self.root / "installed.json"
+        marker = json.loads(receipt.read_text())
+        marker["resource_policy_key"] = "a" * 64
+        receipt.write_text(json.dumps(marker))
+        with self.assertRaises(InstallError):
+            verify_installed(root=self.root)
+
+    def test_removed_exact_asset_blocks_before_any_game_download(self):
+        from lala_core.yooasset_index import parse_manifest
+        from lala_core.manifest_transport import (
+            ManifestReceipt, ManifestPair)
+        from lala_core.yooasset_index import ParsedCatalog
+        from lala_core.bundle_install import build_bundle_specs
+        obs = observed()
+        # Even a perfectly valid official Manifest with other game content
+        # is insufficient when reviewed LaLa source asset is missing.
+        broken_data = manifest("DataPackage", REV1).replace(
+            b"Assets/ResourcesBuild/Data/SmithData_C.bytes",
+            b"Assets/ResourcesBuild/Data/NotLaLaData.bytes")
+        from lala_core.manifest_transport import verify_manifest_transport
+        import hashlib
+        def receipt(pkg, rev, body):
+            return ManifestReceipt(pkg, obs.data_version, rev, len(body),
+                                   hashlib.sha256(body).hexdigest(), crc(body))
+        main = manifest("MainPackage", REV2)
+        pair = ManifestPair(obs.exe_version, obs.data_version,
+                            (receipt("DataPackage", REV1, broken_data),
+                             receipt("MainPackage", REV2, main)))
+        catalog = ParsedCatalog(pair, (
+            parse_manifest(broken_data, package="DataPackage", revision=REV1),
+            parse_manifest(main, package="MainPackage", revision=REV2)))
+        with self.assertRaisesRegex(InstallError, "缺少經審核"):
+            build_bundle_specs(catalog)
 
     def test_corrupt_bundle_blocks_and_redownloads_only_bad_file(self):
         self.install()
