@@ -6,6 +6,7 @@ from lala_core.features import BY_KEY, FEATURES
 from . import theme as t
 from .version import DESKTOP_VERSION
 from .window_policy import apply_fixed_window
+from .window_chrome import install_borderless
 
 
 class LaLaDesktop(tk.Tk):
@@ -13,6 +14,7 @@ class LaLaDesktop(tk.Tk):
         super().__init__()
         self.title(f"LaLa — {DESKTOP_VERSION}｜經典介面預覽")
         apply_fixed_window(self, kind="main")
+        self._chrome = install_borderless(self)
         self.configure(bg=t.BG)
         self._font = self._choose_font()
         self._feature_windows = {}
@@ -58,15 +60,23 @@ class LaLaDesktop(tk.Tk):
         self._top.pack(fill="x", padx=8, pady=(8, 3))
         header = tk.Frame(self._top, bg=t.PANEL)
         header.pack(side="left", fill="x", expand=True, padx=13, pady=7)
-        self.text(header, "✦  LaLa  ｜  飄流幻境 RE", size=17, bold=True,
-                  color=t.SECTION).pack(anchor="w")
-        self.text(header, "等待登入與角色資料同步  •  正式伺服器尚未接入", size=10,
-                  color=t.MUTED).pack(anchor="w", pady=(3, 0))
+        brand = self.text(header, "✦  LaLa  ｜  飄流幻境 RE", size=17, bold=True,
+                          color=t.SECTION)
+        brand.pack(anchor="w")
+        subtitle = self.text(header, "等待登入與角色資料同步  •  正式伺服器尚未接入",
+                             size=10, color=t.MUTED)
+        subtitle.pack(anchor="w", pady=(3, 0))
+        self._chrome.bind_drag(self._top, header, brand, subtitle)
         actions = tk.Frame(self._top, bg=t.PANEL)
         actions.pack(side="right", padx=12, pady=8)
         self.text(actions, "● 離線預覽", color=t.WARN, size=10).pack(side="left", padx=11)
         self._button(actions, "登入／選角", lambda: self.open_feature("accounts")).pack(side="left", padx=3)
         self._button(actions, "中斷連線", lambda: self._offline_notice(), width=10).pack(side="left", padx=3)
+        # 系統白色標題列移除後，保留最小化與關閉的操作入口（不提供最大化）。
+        self._minimize_button = self._button(actions, "─", self._chrome.minimize, width=3)
+        self._minimize_button.pack(side="left", padx=(12, 3))
+        self._close_button = self._button(actions, "✕", self.destroy, width=3)
+        self._close_button.pack(side="left", padx=3)
 
         body = tk.Frame(self, bg=t.BG)
         body.pack(fill="both", expand=True, padx=9, pady=(3, 8))
@@ -221,10 +231,15 @@ class LaLaDesktop(tk.Tk):
         self._feature_windows["_catalog"] = window
         window.title("LaLa ｜全部功能")
         apply_fixed_window(window, kind="dialog", parent=self)
+        chrome = install_borderless(window)
         window.configure(bg=t.BG)
         search = tk.StringVar()
-        self.text(window, "功能入口", size=17, bold=True, color=t.SECTION).pack(
-            anchor="w", padx=20, pady=(17, 8))
+        toolbar = tk.Frame(window, bg=t.BG)
+        toolbar.pack(fill="x", padx=20, pady=(10, 6))
+        label = self.text(toolbar, "全部功能", size=17, bold=True, color=t.SECTION)
+        label.pack(side="left")
+        self._button(toolbar, "✕", window.destroy, width=3).pack(side="right")
+        chrome.bind_drag(window, toolbar, label)
         entry = tk.Entry(window, textvariable=search, bg=t.FIELD, fg=t.TEXT,
                          insertbackground=t.TEXT, relief="flat",
                          font=(self._font, 12), highlightthickness=1,
@@ -266,11 +281,16 @@ class LaLaDesktop(tk.Tk):
         self._feature_windows[key] = window
         window.title(f"LaLa ｜{feature.title}（UI 預覽）")
         apply_fixed_window(window, kind="dialog", parent=self)
+        chrome = install_borderless(window)
         window.configure(bg=t.BG)
         pane = self._panel(window, bg=t.PANEL)
         pane.pack(fill="both", expand=True, padx=15, pady=15)
-        self.text(pane, feature.title, size=21, bold=True, color=t.SECTION).pack(
-            anchor="w", padx=24, pady=(24, 13))
+        toolbar = tk.Frame(pane, bg=t.PANEL)
+        toolbar.pack(fill="x", padx=24, pady=(11, 6))
+        label = self.text(toolbar, feature.title, size=21, bold=True, color=t.SECTION)
+        label.pack(side="left")
+        self._button(toolbar, "✕", window.destroy, width=3).pack(side="right")
+        chrome.bind_drag(window, pane, toolbar, label)
         self.text(pane, feature.description, size=12, wraplength=510,
                   justify="left").pack(anchor="w", padx=24)
         self.text(pane, "目前僅有 UI 佔位，尚未接入遊戲功能。",

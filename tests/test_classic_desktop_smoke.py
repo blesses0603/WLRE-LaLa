@@ -18,6 +18,7 @@ class DesktopSmokeTests(unittest.TestCase):
         self.assertEqual(tuple(window.resizable()), (0, 0))
         self.assertEqual(tuple(window.minsize()), actual)
         self.assertEqual(tuple(window.maxsize()), actual)
+        self.assertTrue(window.overrideredirect(), "不得顯示作業系統原生標題列")
 
     def test_main_and_all_feature_windows_fixed_16_by_9(self):
         from lala_desktop.app import LaLaDesktop
@@ -25,6 +26,8 @@ class DesktopSmokeTests(unittest.TestCase):
         try:
             self._assert_fixed(root, kind="main")
             self.assertTrue(root._map_canvas.winfo_exists())
+            self.assertTrue(root._minimize_button.winfo_exists())
+            self.assertTrue(root._close_button.winfo_exists())
             self.assertTrue(root._events.winfo_exists())
 
             root.open_feature("expeditions")
