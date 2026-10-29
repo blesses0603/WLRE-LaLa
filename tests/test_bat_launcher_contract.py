@@ -75,6 +75,16 @@ class LauncherContractTests(unittest.TestCase):
         self.assertLess(self.content.index('if "%DIAGNOSE_ONLY%"=="1" ('),
                         self.content.index('"%VENV_PY%" -m lala_desktop'))
 
+    def test_single_server_tcp_probe_uses_explicit_opt_in(self):
+        self.assertIn('if /I "%~1"=="--probe-server" set "PROBE_ONLY=1"', self.content)
+        probe = '"%VENV_PY%" -m lala_core.server_probe --online --line 101 --timeout 3 --json'
+        self.assertIn(probe, self.content)
+        self.assertLess(self.content.index('if "%CHECK_ONLY%"=="1" ('),
+                        self.content.index(probe))
+        self.assertLess(self.content.index(probe),
+                        self.content.index('"%VENV_PY%" -m lala_desktop.launcher'))
+        self.assertIn("no login packets.", self.content)
+
     def test_gui_launches_without_covering_console(self):
         self.assertIn('if exist "%VENV_DIR%\\Scripts\\pythonw.exe" (', self.content)
         self.assertIn('"%VENV_PY%" -m lala_desktop.launcher', self.content)

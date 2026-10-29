@@ -15,7 +15,8 @@ class ResourceUISmokeTests(unittest.TestCase):
                 yield widget
                 yield from all_children(widget)
 
-        with patch("lala_core.resource_inspector.observe_official_versions") as remote:
+        with patch("lala_core.resource_inspector.observe_official_versions") as remote, \
+             patch("lala_desktop.local_tools.probe_line") as tcp:
             root = LaLaDesktop()
             try:
                 root.open_feature("resources")
@@ -25,7 +26,9 @@ class ResourceUISmokeTests(unittest.TestCase):
                           for widget in all_children(window)]
                 self.assertIn("查詢官方版本", labels)
                 self.assertIn("驗證兩包 Manifest", labels)
+                self.assertIn("測試遊戲伺服器 TCP", labels)
                 self.assertFalse(remote.called, "UI 開啟不得自動連官方 CDN")
+                tcp.assert_not_called()
                 self.assertTrue(window.overrideredirect())
             finally:
                 root.destroy()

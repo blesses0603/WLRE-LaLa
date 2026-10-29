@@ -7,6 +7,7 @@ from queue import Empty, SimpleQueue
 from threading import Thread
 from lala_core.resource_inspector import inspect
 from lala_core.official_versions import OfficialVersionError
+from lala_core.server_probe import LINE_SNAPSHOT, probe_line
 from . import theme as t
 from lala_core.efficiency import ExperienceSample, estimate_experience
 from lala_core.planning import (
@@ -175,6 +176,56 @@ def _build_resource_inspector(parent, *, font_name, button_factory):
     ]
     for control in controls:
         control.pack(side="left", padx=(0, 8))
+
+    # This is a separate manual TCP experiment; never implicit on window open.
+    # The old client provided a server-list snapshot; identity is not yet
+    # guaranteed to match the currently deployed official server.
+    tcp_result = tk.StringVar(master=parent, value="尚未測試遊戲伺服器 TCP。")
+    tcp_queue = SimpleQueue()
+    tcp_running = {"active": False}
+    selected = LINE_SNAPSHOT[101]
+    tcp_button_area = tk.Frame(parent, bg=t.PANEL)
+    tcp_button_area.pack(fill="x", padx=24, pady=(8, 2))
+
+    def poll_tcp():
+        if not parent.winfo_exists():
+            return
+        try:
+            message = tcp_queue.get_nowait()
+        except Empty:
+            parent.after(80, poll_tcp)
+            return
+        tcp_running["active"] = False
+        tcp_button.set_enabled(True)
+        tcp_result.set(message)
+
+    def request_tcp():
+        if tcp_running["active"]:
+            return
+        tcp_running["active"] = True
+        tcp_button.set_enabled(False)
+        tcp_result.set("正在建立單次 TCP 連線；不送出登入或遊戲封包…")
+
+        def worker():
+            try:
+                r = probe_line(101, timeout=3)
+                tip = "TCP 連線建立成功" if r.tcp_reachable else "TCP 未建立：" + r.status
+                text = f"{tip}（{r.elapsed_ms}ms）；無任何封包／登入。協定未驗證。"
+            except Exception:
+                text = "TCP 測試未完成；不輸出敏感路徑。登入保持停用。"
+            tcp_queue.put(text)
+        Thread(target=worker, daemon=True, name="lala-server-tcp-once").start()
+        parent.after(80, poll_tcp)
+
+    tcp_button = button_factory(tcp_button_area, "測試遊戲伺服器 TCP", request_tcp)
+    tcp_button.pack(side="left")
+    tk.Label(tcp_button_area,
+             text=f"舊版 {selected[0]} 快照 {selected[1]}:{selected[2]}（現況未核對）",
+             fg=t.MUTED, bg=t.PANEL, font=(font_name, 9),
+             wraplength=340, justify="left").pack(side="left", padx=6)
+    tk.Label(parent, textvariable=tcp_result, fg=t.CYAN, bg=t.PANEL,
+             font=(font_name, 10), wraplength=540,
+             justify="left", anchor="w").pack(fill="x", padx=24, pady=(0, 3))
     tk.Label(parent, textvariable=status, fg=t.CYAN, bg=t.PANEL,
              font=(font_name, 10), wraplength=540, justify="left",
              anchor="w").pack(fill="x", padx=24, pady=(8, 4))

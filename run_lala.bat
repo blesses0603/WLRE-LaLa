@@ -9,9 +9,11 @@ if errorlevel 1 goto :path_error
 
 set "CHECK_ONLY=0"
 set "DIAGNOSE_ONLY=0"
+set "PROBE_ONLY=0"
 set "PY_ONLY=0"
 if /I "%~1"=="--check" set "CHECK_ONLY=1"
 if /I "%~1"=="--diagnose" set "DIAGNOSE_ONLY=1"
+if /I "%~1"=="--probe-server" set "PROBE_ONLY=1"
 if /I "%~2"=="--py-only" set "PY_ONLY=1"
 set "VENV_DIR=%CD%\.venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
@@ -49,6 +51,19 @@ if errorlevel 1 goto :install_error
 
 if "%CHECK_ONLY%"=="1" (
     echo [LaLa] Python and desktop dependencies are ready.
+    exit /b 0
+)
+
+if "%PROBE_ONLY%"=="1" (
+    echo [LaLa] One-time TCP probe using legacy server-list snapshot; no login packets.
+    "%VENV_PY%" -m lala_core.server_probe --online --line 101 --timeout 3 --json
+    if errorlevel 1 (
+        echo [LaLa] TCP NOT ESTABLISHED. This does not prove the game server is offline.
+        pause
+        exit /b 1
+    )
+    echo [LaLa] TCP established; gameplay protocol and authentication NOT verified.
+    pause
     exit /b 0
 )
 

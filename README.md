@@ -54,6 +54,22 @@ Windows 主畫面右側小地圖、事件紀錄與戰場陣形**共用使用者�
 
 詳細操作與安全範圍見 docs/官方資源唯讀檢查.md。
 
+## 正式遊戲分流的單次 TCP 連線實驗（P1）
+
+已依舊版 `WLRe_lala/wlre/resources/server_list.json` 的**分流快照**加入連線檢測。這份快照不保證仍為官方最新位址，連線成功也不能證明遊戲協定相容或已登入。
+
+Windows 使用者可在「官方資源」功能視窗按「測試遊戲伺服器 TCP」，預設只測試舊版「地球召引 1 線」 `34.81.10.22:16988` **一次**；也可在解壓縮的專案資料夾執行：
+
+    run_lala.bat --probe-server
+
+這個模式會顯示測試結果並保留視窗，**不打開 GUI，不執行登入，不傳送任何遊戲封包**。一般雙擊 BAT 不會自動對遊戲分流建立 TCP 連線，避免每次啟動都多次打擾正式伺服器。
+
+也可使用：
+
+    .venv\Scripts\python.exe -m lala_core.server_probe --online --line 101 --json
+
+回傳 `tcp_connected` 只代表 TCP socket 成功建立；`connection_refused` 或 `timeout` 不能直接證明官方關服，亦可能是路由、防火牆、舊位址或來源網路策略。真正帳號登入仍需新版經驗證的協定實作，**不應在 GitHub PR／聊天傳送遊戲密碼或 Token**。
+
 ## Android 介面預覽
 
 安裝 Kivy 後，可於支援 Kivy 的 Python 環境執行：

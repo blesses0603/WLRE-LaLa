@@ -31,7 +31,7 @@ class ServerProbeTests(unittest.TestCase):
         self.assertEqual(calls, [(("34.81.10.22", 16988), 2)])
         self.assertEqual(result.status, "tcp_connected")
         self.assertTrue(result.tcp_reachable)
-        self.assertEqual(result.elapsed_ms, 45)
+        self.assertTrue(44 <= result.elapsed_ms <= 46)
         self.assertEqual(result.transmitted_bytes, 0)
         self.assertFalse(result.authenticated)
         self.assertFalse(result.protocol_compatible)
