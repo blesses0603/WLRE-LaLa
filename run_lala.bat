@@ -2,14 +2,16 @@
 setlocal EnableExtensions DisableDelayedExpansion
 rem LaLa Windows launcher. Automatically locate a compatible Python via "py" or PATH.
 rem Double click: check Python/Pillow, read official versions and both Manifests, then open LaLa.
-rem CI: run_lala.bat --check [--py-only] skips network and GUI.
+rem CI: --check skips network and GUI. Diagnostic: --diagnose keeps network result visible.
 
 cd /d "%~dp0"
 if errorlevel 1 goto :path_error
 
 set "CHECK_ONLY=0"
+set "DIAGNOSE_ONLY=0"
 set "PY_ONLY=0"
 if /I "%~1"=="--check" set "CHECK_ONLY=1"
+if /I "%~1"=="--diagnose" set "DIAGNOSE_ONLY=1"
 if /I "%~2"=="--py-only" set "PY_ONLY=1"
 set "VENV_DIR=%CD%\.venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
@@ -58,9 +60,19 @@ echo [LaLa] Checking official public versions and both Manifests before launchin
 if errorlevel 1 (
     set "LALA_STARTUP_RESOURCE_STATUS=failed"
     echo [LaLa] WARNING: Official resource check failed. Launching OFFLINE UI only.
+    if "%DIAGNOSE_ONLY%"=="1" (
+        echo [LaLa] Diagnostic mode: no GUI opened. Copy only the error message above.
+        pause
+        exit /b 1
+    )
 ) else (
     set "LALA_STARTUP_RESOURCE_STATUS=transport_checked"
     echo [LaLa] Manifest transfer integrity checked; game protocol remains unverified.
+)
+if "%DIAGNOSE_ONLY%"=="1" (
+    echo [LaLa] Diagnostic mode complete. Login remains disabled.
+    pause
+    exit /b 0
 )
 
 echo [LaLa] Starting LaLa desktop UI...

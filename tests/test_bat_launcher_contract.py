@@ -67,6 +67,13 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn("Launching OFFLINE UI only.", self.content)
         self.assertIn('--check [--py-only] skips network and GUI.', self.content)
 
+    def test_explicit_diagnostic_mode_keeps_error_visible_without_gui(self):
+        self.assertIn('if /I "%~1"=="--diagnose" set "DIAGNOSE_ONLY=1"', self.content)
+        self.assertIn("Diagnostic mode: no GUI opened.", self.content)
+        self.assertIn("Diagnostic mode complete.", self.content)
+        self.assertLess(self.content.index('if "%DIAGNOSE_ONLY%"=="1" ('),
+                        self.content.index('"%VENV_PY%" -m lala_desktop'))
+
     def test_gui_launches_without_covering_console(self):
         self.assertIn('if exist "%VENV_DIR%\\Scripts\\pythonw.exe" (', self.content)
         self.assertIn('start "" "%VENV_DIR%\\Scripts\\pythonw.exe" -m lala_desktop',
