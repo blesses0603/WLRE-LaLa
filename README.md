@@ -9,7 +9,7 @@
 - 共用 Core：27 項功能需求註冊表、操作安全閘門、權威快照、官方資源 SHA-256 稽核、**官方版本／兩包 Manifest 唯讀檢查、可選 YooAsset 2.2.5 全量 Asset/Bundle 索引解析、舊版 1262 封包唯讀回歸測試**、製作／遠征／地圖離線規劃、經驗效率計算、唯讀戰鬥候選、社交事件記錄、UI 偏好安全存檔及診斷資訊遮罩。
 - Windows 可用離線工具：經驗效率、材料與背包、遠征資格（使用者手動輸入，不連線或送出封包）。新增使用者**手動觸發**的官方公開版本與 Manifest 查詢，不需帳密、不送出遊戲命令。
 - 測試：純 Python `unittest` 與 CI 語法檢查。
-- **尚無遊戲伺服器登入會話、完整資源解析／Bundle 同步、戰鬥、自動化、真實角色資料。** 公開官方版本／Manifest 的唯讀查詢不代表遊戲服務已接通。
+- **已有 Manifest 全量索引解析與 Bundle 安裝程式，但尚無遊戲伺服器登入會話、遊戲資料 Schema 解析、戰鬥、自動化及真實角色資料。** 公開官方版本／Manifest 的唯讀查詢不代表遊戲服務已接通。
 
 請勿在此預覽程式輸入真實帳密。後續實作會嚴格分離 Windows／Android UI 及共用協定、會話與安全控制。
 
@@ -17,9 +17,15 @@
 
 需 Windows 10／11 及已安裝的 **Python 3.11～3.15（需包含 Tkinter）**。目前統一使用 **Pillow 13.0.0**；由於 Pillow 13 不支援 Python 3.10，僅安裝 3.10 時 BAT 會顯示版本不相容，建議安裝 Python 3.11 以上。
 
-**從 GitHub PR 的開發分支下載完整 ZIP、解壓縮後，直接雙擊 `run_lala.bat` 即可。** 目前會依序檢查 Python／Pillow 13、**自動讀取官方公開版本及兩份 Manifest 傳輸完整性**，最後才啟動 LaLa。Windows 安裝了正常的 `pythonw.exe` 時，GUI 子程序建立成功後 CMD 會自動結束，避免黑色命令視窗擋住畫面；即使之前的官方自檢失敗，也不會把既有錯誤碼誤判成 GUI 啟動失敗；沒有 `pythonw.exe` 時退回可顯示錯誤的一般 Python 啟動方式。全程不用手動輸入 `python -m lala_core.resource_inspector`。若官方網路/CDN 自檢失敗仍開啟離線介面，CMD 會顯示更精確的版本表錯誤欄位與筆數（不直接印出官方原始內容）；需要保留錯誤視窗時可在專案根目錄執行 `run_lala.bat --diagnose`，此模式只做官方資源檢查、不開 GUI、結束前會暫停。一般啟動時主視窗會標示「自檢失敗／離線」，登入及所有尚未驗證的伺服器功能保持禁用；這不是自動登入。 第一次啟動時會在專案資料夾建立 `.venv`，統一安裝 Pillow 13.0.0（通常需要網路）；之後雙擊會使用同一份環境，不必再手動執行 pip。BAT 會**先自動偵測 Windows 的 `py`（Python Launcher）**，先嘗試 `py -3` 的預設版本，再依序嘗試已註冊的 3.15／3.14／3.13／3.12／3.11；若沒有 `py` 或該 Launcher 沒有相容版本，再偵測 `python`、`python3`（PATH）。不需手動設定 Python 路徑，且不會因僅安裝 Python 3.14／3.15 就顯示找不到 Python。找不到時顯示安裝說明與 `py -0p` 檢查指令，而**不會自動下載或安裝 Python 本體**。若已有使用 Python 3.11 以上的 `.venv`，BAT 會檢查並更新 Pillow 至 13.0.0；若舊 `.venv` 使用 Python 3.10 或環境損壞，BAT 會提示自行重新命名 `.venv` 後再啟動，不會擅自刪除舊環境。資料夾唯讀或下載失敗時，BAT 會顯示錯誤並保留視窗。
+**下載 PR #2 的最新開發分支，完整解壓縮後，雙擊 `run_lala.bat`。** 啟動器先檢查 Python／Pillow 13，再查詢當前官方版本，下載及完整解析 `DataPackage`、`MainPackage` 兩份 Manifest，依檔案索引下載**兩包列出的所有 Bundle**。每個 Bundle 都必須通過大小、MD5、CRC32LE 驗證，才會原子寫入私有快取。全部完成並通過複查後，才允許 LaLa 主介面開啟；斷線、磁碟不足、資料格式不同、雜湊不符或超過安全配額都會**停止啟動**，不會直接跳進離線介面。
 
-啟動前的官方 HTTPS 請求逐筆逾時設為 3 秒；檢查過程可能受網路延遲影響，無法保證固定總時間。若不需要官方資源檢查而只想驗證 Python 環境，使用下列 CI／開發參數（完全不連官方主機、不啟動 GUI）：
+快取路徑為 Windows `%LOCALAPPDATA%\\LaLa\\official_resources`，不會修改遊戲原始安裝目錄，也不會將遊戲素材加入 GitHub。首次下載可能需要較長時間與較大的硬碟空間；預設安全上限為 32 GiB、100,000 個 Bundle、單檔 256 MiB，另預留至少 512 MiB 空間。既有檔案必須重新驗證，通過則可重用；中斷後可再次雙擊繼續。若資源規模超過預設配額，程式會拒絕啟動，需要先確認實際下載量再調整設定，不會悄悄突破限制。
+
+**資源安裝完整 ≠ 遊戲資料 Schema 已驗證或可以登入官方伺服器。** 目前正式服登入、戰鬥、交易等功能仍受安全閘門保護，不能僅憑安裝成功就解鎖。正常安裝後 CMD 會透過 Python 子程序開啟無主控台 LaLa；要保留索引診斷結果可使用 `run_lala.bat --diagnose`（只查版本及 Manifest，不下載全部 Bundle、不開 UI）。第一次啟動時會在專案資料夾建立 `.venv`、安裝 Pillow 13；之後會重用同一環境。
+
+BAT 會**先自動偵測 Windows 的 `py`（Python Launcher）**，先嘗試 `py -3` 的預設版本，再依序嘗試已註冊的 3.15／3.14／3.13／3.12／3.11；若沒有 `py` 或該 Launcher 沒有相容版本，再偵測 `python`、`python3`（PATH）。不需手動設定 Python 路徑，且不會因僅安裝 Python 3.14／3.15 就顯示找不到 Python。找不到時顯示安裝說明與 `py -0p` 檢查指令，而**不會自動下載或安裝 Python 本體**。若已有使用 Python 3.11 以上的 `.venv`，BAT 會檢查並更新 Pillow 至 13.0.0；若舊 `.venv` 使用 Python 3.10 或環境損壞，BAT 會提示自行重新命名 `.venv` 後再啟動，不會擅自刪除舊環境。資料夾唯讀或下載失敗時，BAT 會顯示錯誤並保留視窗。
+
+啟動時官方 HTTPS 每次請求的逾時上限為 20 秒；下載總時間依檔案數量及網路速度而異。若不需要官方資源檢查而只想驗證 Python 環境，使用下列 CI／開發參數（完全不連官方主機、不啟動 GUI）：
 
     run_lala.bat --check
 
@@ -37,24 +43,21 @@ Windows 主畫面右側小地圖、事件紀錄與戰場陣形**共用使用者�
 
 桌面版統一 **16:9 固定視窗政策**：主視窗預設 1280×720，功能與清單視窗預設 800×450，禁止使用者調整大小或最大化；如果螢幕可用空間不足，啟動時選擇較小的 16:9 預設，開啟後仍固定。**移除 Windows 白色系統標題列**，沿用 LaLa 深藍頁首，可拖曳頁首移動視窗；主視窗頁首提供最小化及關閉，功能視窗上方提供關閉。Windows 工作列最小化／還原行為仍待實機驗證。介面外觀採 **舊版按鈕＋圓角面板**：主視窗 20px 外框（Windows 以 Win32 Window Region 裁切）、資訊卡及面板 Canvas 圓角、青色細描邊；按鈕則使用舊版 1262 的藍色 Btn_004、橘色 Btn_014、灰色 Btn_016 及原版圓形圖示，沿用水平切片與滑入／按下效果；不改變 16:9 與既有功能。Android 是原生觸控全螢幕頁面，不套用 Windows 視窗規則。
 
-## 官方公開資源唯讀檢查（P1）
+## 官方資源強制安裝與診斷（P1）
 
-一般雙擊 run_lala.bat 時，會**先自動執行一次完整的官方版本＋兩包 Manifest 唯讀自檢**再啟動主畫面，結果在首頁上方顯示（只代表 Manifest 傳輸檢查；不解鎖登入）。若檢查失敗可繼續使用離線計算工具，也能在「全部功能」的「官方資源」視窗手動重查。手動重查僅影響該視窗的結果，不會自行解鎖遊戲操作。
+一般啟動必須使用 `run_lala.bat`：版本／完整 Manifest 索引 → 全量 Bundle 計畫與安全配額 → 已快取檔案驗證／增量下載 → 最終版本與 Bundle 複查 → 原子安裝收據 → 主程式。**任一步驟失敗就不能進入 LaLa。**
 
-開發／診斷時也可在命令列單獨執行；除 BAT 一鍵啟動外無需再手動輸入。
+驗收與診斷指令：
 
-命令列亦可明確執行：
+    run_lala.bat --diagnose
+    .venv\Scripts\python.exe -m lala_core.resource_bootstrap --online --install --json
 
-    py -3 -m lala_core.resource_inspector --online
-    py -3 -m lala_core.resource_inspector --online --manifests --json
-    py -3 -m lala_core.resource_inspector --online --parse-manifests --json
+`--diagnose` 只檢查官方索引格式，不下載全部 Bundle；後者會執行實際安裝。CI 的 `--check` 只檢查 Python／Pillow，不會對官方主機聯網。
 
-- 只查詢官方公開 HTTPS 版本對照、兩包獨立修訂號與選用的 Manifest .hash/.bytes；不將 1275 寫死。
-- 使用者可按「解析資源索引」或使用 `--parse-manifests`，針對 CRC32LE 校驗通過的官方 `.bytes` 進行 YooAsset 2.2.5 全量 Asset／Bundle／相依索引解析；只輸出摘要，不存完整路徑。**這不代表 Unity Bundle 解包、遊戲資料 Schema 或伺服器協定已驗證**，`can_login` 永遠為 false。
-- 不輸出帳密、不寫入遊戲安裝目錄、不儲存原始 Manifest 或完整 AssetPath 索引、不下載 Bundle；GitHub CI 使用模擬資料，不主動連官方站。
-- 另有 1262 封包的**離線唯讀**解碼與背包、金幣、位置、回合重播，僅供新版規格比對；未核對當前較新的官方伺服器封包，不開放此解碼器用於登入。
-
-詳細操作與安全範圍見 docs/官方資源唯讀檢查.md。
+- 官方版號與兩份 Manifest 依各自完整修訂號確認，不能固定使用 1275。
+- HTTPS 下載禁止任意主機、轉址與不安全路徑；Bundle 下載需要 Manifest 列出的檔名與大小、MD5、CRC32LE。
+- 安裝收據僅表示兩包所有 Manifest 列出的 Bundle 已複查，不宣稱已解包 Unity 資產或證實遊戲資料格式。登入仍維持停用。
+- 相關程式：`lala_core/resource_bootstrap.py`、`bundle_install.py`、`yooasset_index.py`，詳見 `docs/官方資源唯讀檢查.md`。
 
 ## 正式遊戲分流的單次 TCP 連線實驗（P1）
 
