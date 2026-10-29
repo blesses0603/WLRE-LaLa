@@ -65,7 +65,8 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn('set "LALA_STARTUP_RESOURCE_STATUS=failed"', self.content)
         self.assertIn('set "LALA_STARTUP_RESOURCE_STATUS=transport_checked"', self.content)
         self.assertIn("Launching OFFLINE UI only.", self.content)
-        self.assertIn('--check [--py-only] skips network and GUI.', self.content)
+        self.assertIn('CI: --check skips network and GUI.', self.content)
+        self.assertIn('Diagnostic: --diagnose keeps network result visible.', self.content)
 
     def test_explicit_diagnostic_mode_keeps_error_visible_without_gui(self):
         self.assertIn('if /I "%~1"=="--diagnose" set "DIAGNOSE_ONLY=1"', self.content)
