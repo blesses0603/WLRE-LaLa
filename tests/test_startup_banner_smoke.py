@@ -19,7 +19,7 @@ class StartupBannerTests(unittest.TestCase):
 
         scenarios = [
             ("transport_checked", "自檢通過／離線", "正式服協定尚未驗證"),
-            ("installed", "資源已安裝／離線", "全部 Bundle 已安裝驗證"),
+            ("installed", "資源已安裝／離線", "LaLa 所需 Bundle 已安裝驗證"),
             ("failed", "自檢失敗／離線", "官方資源自檢未通過"),
             ("not_checked", "尚未自檢／離線", "未執行官方資源自檢"),
         ]
