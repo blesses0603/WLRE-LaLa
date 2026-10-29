@@ -18,6 +18,9 @@ DISABLED = "#7292a4"
 # 大螢幕採 1280x720，較小螢幕由 window_policy 選用等比例固定預設。
 WINDOW_SIZE = (1280, 720)
 DIALOG_SIZE = (800, 450)
+# 固定以戰場陣形的寬版（1280px 主視窗約 680px）為基準。
+# 小螢幕等比例縮放右欄；切換「事件紀錄／戰場陣形」不再重新計算。
+RIGHT_COLUMN_WIDTH = 680
 MAP_SIZE = (350, 240)
 QUICK_KEYS = (
     "dashboard", "party", "companions", "expeditions", "alchemy",

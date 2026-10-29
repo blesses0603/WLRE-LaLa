@@ -9,6 +9,7 @@ from .window_policy import apply_fixed_window
 from .window_chrome import install_borderless
 from .rounded_widgets import RoundedPanel, rounded_points
 from .game_buttons import SpriteButton, icon_photo
+from .layout_policy import right_column_width
 
 
 class LaLaDesktop(tk.Tk):
@@ -76,15 +77,24 @@ class LaLaDesktop(tk.Tk):
 
         body = tk.Frame(self, bg=t.BG)
         body.pack(fill="both", expand=True, padx=9, pady=(3, 8))
+        # 右欄以「戰場陣形」寬版為準（1280 主視窗時為 680px）。
+        # 停止子元件的幾何傳播，避免切換事件／戰場後左右欄重新分配。
+        requested_width = right_column_width(self.winfo_width())
         body.columnconfigure(0, weight=1, minsize=0)
-        body.columnconfigure(1, weight=0, minsize=t.MAP_SIZE[0])
+        body.columnconfigure(1, weight=0, minsize=requested_width)
         body.rowconfigure(0, weight=1)
+        body.grid_propagate(False)
         left = self._panel(body, bg=t.PANEL, border=False, radius=18, inset=5)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.pack_propagate(False)
         right = self._panel(body, bg=t.PANEL, border=False, radius=18, inset=5)
+        right.configure(width=requested_width)
         right.grid(row=0, column=1, sticky="nsew")
-        right.configure(width=t.MAP_SIZE[0])
-        right.grid_propagate(False)
+        right.pack_propagate(False)
+        self._body = body
+        self._left_panel = left
+        self._right_panel = right
+        self._right_panel_width = requested_width
         self._build_left(left.content)
         self._build_right(right.content)
 

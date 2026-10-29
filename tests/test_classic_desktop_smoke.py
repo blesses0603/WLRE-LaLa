@@ -3,6 +3,7 @@ import os
 import unittest
 
 from lala_desktop.window_policy import choose_size, is_16_by_9
+from lala_desktop.layout_policy import right_column_width
 
 
 @unittest.skipUnless(os.name == "nt" or os.environ.get("DISPLAY"),
@@ -37,10 +38,25 @@ class DesktopSmokeTests(unittest.TestCase):
                 self.assertEqual(len(root._minimize_button.find_withtag("legacy-sprite")), 1)
                 self.assertEqual(root._close_button.kind, "Btn_Close04")
                 self.assertEqual(root._minimize_button.kind, "Btn_Minimize")
-            root._show_right_tab("battle")
-            self.assertTrue(root._right_pages["battle"].winfo_manager())
-            root._show_right_tab("events")
-            self.assertTrue(root._right_pages["events"].winfo_manager())
+            # 分頁切換不應造成右側欄位在窄版／寬版之間跳動。
+            target_width = right_column_width(root.winfo_width())
+            first_width = root._right_panel.winfo_width()
+            first_left = root._left_panel.winfo_width()
+            self.assertEqual(root._right_panel_width, target_width)
+            self.assertEqual(first_width, target_width)
+            self.assertGreater(first_left, 0)
+            map_width = root._map_canvas.winfo_width()
+            self.assertGreater(map_width, target_width - 45)
+            for key in ("battle", "events", "battle", "events"):
+                root._show_right_tab(key)
+                root.update_idletasks()
+                root.update()
+                self.assertTrue(root._right_pages[key].winfo_manager())
+                self.assertEqual(root._right_panel.winfo_width(), first_width)
+                self.assertEqual(root._left_panel.winfo_width(), first_left)
+                self.assertEqual(root._map_canvas.winfo_width(), map_width)
+                self.assertEqual(root.winfo_width(), choose_size(
+                    "main", root.winfo_screenwidth(), root.winfo_screenheight())[0])
             self.assertTrue(root._minimize_button.winfo_exists())
             self.assertTrue(root._close_button.winfo_exists())
             self.assertTrue(root._events.winfo_exists())

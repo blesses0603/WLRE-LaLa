@@ -32,3 +32,4 @@ class ClassicInterfaceContractTests(unittest.TestCase):
         self.assertEqual(desktop.WINDOW_SIZE, (1280, 720))
         self.assertEqual(desktop.DIALOG_SIZE, (800, 450))
         self.assertGreaterEqual(desktop.MAP_SIZE[0], 340)
+        self.assertEqual(desktop.RIGHT_COLUMN_WIDTH, 680)
