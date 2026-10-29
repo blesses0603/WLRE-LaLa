@@ -18,6 +18,8 @@ jobs:
         run: python -m compileall -q lala_core lala_desktop lala_android
       - name: Tkinter interface smoke test (Xvfb)
         run: xvfb-run -a python -m unittest discover -s tests -p 'test_classic_desktop_smoke.py' -v
+      - name: Local planning UI interactive smoke test (Xvfb)
+        run: xvfb-run -a python -m unittest discover -s tests -p 'test_local_tools_smoke.py' -v
 
   windows-bat-launcher:
     runs-on: windows-latest
