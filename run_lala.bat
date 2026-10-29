@@ -27,19 +27,21 @@ if errorlevel 1 goto :venv_error
 
 :environment_ready
 if not exist "%VENV_PY%" goto :venv_error
-rem Pillow 11.3.0 Windows binary wheels: Python 3.10 through 3.13.
-"%VENV_PY%" -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 13) else 1)" >nul 2>&1
+rem Pillow 12 for Python 3.10; Pillow 13 for Python 3.11 through 3.15.
+"%VENV_PY%" -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 15) else 1)" >nul 2>&1
 if errorlevel 1 goto :venv_error
+"%VENV_PY%" -c "import tkinter" >nul 2>&1
+if errorlevel 1 goto :tk_error
 if not exist "requirements-desktop.txt" goto :requirements_error
 
 rem Install only if the pinned dependency is missing; do not change system Python.
-"%VENV_PY%" -c "import PIL; from PIL import Image, ImageTk; import tkinter; assert PIL.__version__ == '11.3.0'" >nul 2>&1
+"%VENV_PY%" -c "import sys, PIL, tkinter; from PIL import Image, ImageTk; expected = '12.0.0' if sys.version_info[:2] == (3, 10) else '13.0.0'; sys.exit(0 if PIL.__version__ == expected else 1)" >nul 2>&1
 if errorlevel 1 (
     echo [LaLa] Installing desktop image dependency. Internet may be required.
     "%VENV_PY%" -m pip --disable-pip-version-check install --only-binary=:all: -r "requirements-desktop.txt"
     if errorlevel 1 goto :install_error
 )
-"%VENV_PY%" -c "import PIL; from PIL import Image, ImageTk; import tkinter; assert PIL.__version__ == '11.3.0'" >nul 2>&1
+"%VENV_PY%" -c "import sys, PIL, tkinter; from PIL import Image, ImageTk; expected = '12.0.0' if sys.version_info[:2] == (3, 10) else '13.0.0'; sys.exit(0 if PIL.__version__ == expected else 1)" >nul 2>&1
 if errorlevel 1 goto :install_error
 
 if "%CHECK_ONLY%"=="1" (
@@ -53,13 +55,21 @@ if errorlevel 1 goto :launch_error
 exit /b 0
 
 :find_compatible_python
-rem Try Python Launcher registrations first. Do not use "py -3": it can select Python 3.15.
+rem Use the default Python 3 interpreter if supported, including Python 3.14/3.15.
+rem If the default is too new or broken, try registered compatible versions.
 where py >nul 2>&1
 if not errorlevel 1 (
-    call :try_py_version 3.11
-    call :try_py_version 3.12
-    call :try_py_version 3.13
-    call :try_py_version 3.10
+    py -3 -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 15) else 1)" >nul 2>&1
+    if not errorlevel 1 (
+        set "BASE_EXE=py"
+        set "BASE_ARG=-3"
+    )
+    if not defined BASE_EXE call :try_py_version 3.15
+    if not defined BASE_EXE call :try_py_version 3.14
+    if not defined BASE_EXE call :try_py_version 3.13
+    if not defined BASE_EXE call :try_py_version 3.12
+    if not defined BASE_EXE call :try_py_version 3.11
+    if not defined BASE_EXE call :try_py_version 3.10
 )
 if defined BASE_EXE exit /b 0
 if "%PY_ONLY%"=="1" exit /b 0
@@ -67,21 +77,21 @@ if "%PY_ONLY%"=="1" exit /b 0
 rem Fall back to PATH when launcher is not installed or has no compatible Python.
 where python >nul 2>&1
 if not errorlevel 1 (
-    python -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 13) else 1)" >nul 2>&1
+    python -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 15) else 1)" >nul 2>&1
     if not errorlevel 1 set "BASE_EXE=python"
 )
 if defined BASE_EXE exit /b 0
 
 where python3 >nul 2>&1
 if not errorlevel 1 (
-    python3 -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 13) else 1)" >nul 2>&1
+    python3 -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 15) else 1)" >nul 2>&1
     if not errorlevel 1 set "BASE_EXE=python3"
 )
 exit /b 0
 
 :try_py_version
 if defined BASE_EXE exit /b 0
-py -%~1 -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 13) else 1)" >nul 2>&1
+py -%~1 -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 15) else 1)" >nul 2>&1
 if errorlevel 1 exit /b 0
 set "BASE_EXE=py"
 set "BASE_ARG=-%~1"
@@ -92,10 +102,13 @@ echo [LaLa] ERROR: Cannot open the folder containing run_lala.bat.
 goto :failed
 
 :python_error
-echo [LaLa] ERROR: No compatible Python 3.10 - 3.13 was found.
+echo [LaLa] ERROR: No compatible Python 3.10 - 3.15 was found.
 echo [LaLa] Checked Python Launcher "py" and commands "python" / "python3".
-echo [LaLa] Install Python 3.11 from https://www.python.org/downloads/
-echo [LaLa] Verify with: py -0p
+echo [LaLa] Python may be installed but unregistered or outside supported versions.
+echo [LaLa] See https://www.python.org/downloads/
+echo [LaLa] Check versions: py -0p
+echo [LaLa] Check default: py -3 --version
+echo [LaLa] Check paths: where py
 echo [LaLa] Then double click run_lala.bat again.
 goto :failed
 
@@ -103,6 +116,11 @@ goto :failed
 echo [LaLa] ERROR: Cannot use .venv\Scripts\python.exe.
 echo [LaLa] Check installation, directory permissions and free space.
 echo [LaLa] An old or incompatible .venv may exist. Rename it and retry.
+goto :failed
+
+:tk_error
+echo [LaLa] ERROR: Python is missing Tkinter support.
+echo [LaLa] Install Python with Tcl/Tk and retry.
 goto :failed
 
 :requirements_error

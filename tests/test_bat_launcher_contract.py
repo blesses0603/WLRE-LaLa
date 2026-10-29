@@ -1,4 +1,4 @@
-"""靜態檢查 BAT；完整 py/python 自動偵測使用 Windows CI 實際執行。"""
+"""靜態檢查 BAT；Windows CI 驗證 cmd.exe、依賴和版本偵測。"""
 from pathlib import Path
 import re
 import unittest
@@ -19,27 +19,32 @@ class LauncherContractTests(unittest.TestCase):
     def test_compatible_python_autodetection(self):
         self.assertIn("where py >nul 2>&1", self.content)
         self.assertIn("call :find_compatible_python", self.content)
-        for version in ("3.10", "3.11", "3.12", "3.13"):
+        self.assertIn('py -3 -c "import sys', self.content)
+        for version in ("3.10", "3.11", "3.12", "3.13", "3.14", "3.15"):
             self.assertIn(f"call :try_py_version {version}", self.content)
         self.assertIn('set "BASE_EXE=py"', self.content)
+        self.assertIn('set "BASE_ARG=-3"', self.content)
         self.assertIn('set "BASE_ARG=-%~1"', self.content)
         self.assertIn("where python >nul 2>&1", self.content)
         self.assertIn("where python3 >nul 2>&1", self.content)
         self.assertIn('if "%PY_ONLY%"=="1" exit /b 0', self.content)
-        self.assertIn('"<invalid>"' if False else "<= (3, 13)", self.content)
+        self.assertIn("<= (3, 15)", self.content)
 
-    def test_unique_labels_and_no_global_python_modifications(self):
+    def test_unique_labels_and_no_system_python_modification(self):
         labels = re.findall(r"^:([A-Za-z0-9_]+)$", self.content, flags=re.M)
         self.assertEqual(len(labels), len(set(labels)))
-        self.assertNotIn("py -3 -m", self.content)
         self.assertIn('"%VENV_PY%" -m pip', self.content)
         self.assertNotIn("rmdir ", self.content.lower())
         self.assertNotIn("del /", self.content.lower())
 
-    def test_explicit_dependency_and_binary_only(self):
+    def test_version_matched_pillow_install(self):
         self.assertIn('--only-binary=:all: -r "requirements-desktop.txt"', self.content)
-        self.assertIn("assert PIL.__version__ == '11.3.0'", self.content)
-        (ROOT / "requirements-desktop.txt").read_bytes().decode("ascii")
+        self.assertIn("expected = '12.0.0' if", self.content)
+        self.assertIn("else '13.0.0'", self.content)
+        requirements = (ROOT / "requirements-desktop.txt").read_bytes().decode("ascii")
+        self.assertIn('Pillow==12.0.0; python_version == "3.10"', requirements)
+        self.assertIn('Pillow==13.0.0; python_version >= "3.11"', requirements)
+        self.assertIn("import tkinter", self.content)
 
     def test_ci_check_does_not_open_gui(self):
         self.assertIn('if /I "%~1"=="--check"', self.content)
@@ -48,7 +53,8 @@ class LauncherContractTests(unittest.TestCase):
                         self.content.index('"%VENV_PY%" -m lala_desktop'))
 
     def test_launcher_explains_missing_python(self):
-        self.assertIn("Checked Python Launcher", self.content)
         self.assertIn("py -0p", self.content)
+        self.assertIn("py -3 --version", self.content)
+        self.assertIn("where py", self.content)
         self.assertIn('if "%CHECK_ONLY%"=="0" pause', self.content)
         self.assertIn("exit /b 1", self.content)
