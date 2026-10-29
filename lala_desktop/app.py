@@ -16,7 +16,7 @@ class LaLaDesktop(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"LaLa — {DESKTOP_VERSION}｜經典介面預覽")
-        apply_fixed_window(self, kind="main")
+        self._main_window_size = apply_fixed_window(self, kind="main")
         self._chrome = install_borderless(self)
         self.configure(bg=t.BG)
         self._font = self._choose_font()
@@ -79,7 +79,8 @@ class LaLaDesktop(tk.Tk):
         body.pack(fill="both", expand=True, padx=9, pady=(3, 8))
         # 右欄以「戰場陣形」寬版為準（1280 主視窗時為 680px）。
         # 停止子元件的幾何傳播，避免切換事件／戰場後左右欄重新分配。
-        requested_width = right_column_width(self.winfo_width())
+        # winfo_width() is 1 before Tk has finished mapping the window.
+        requested_width = right_column_width(self._main_window_size[0])
         body.columnconfigure(0, weight=1, minsize=0)
         body.columnconfigure(1, weight=0, minsize=requested_width)
         body.rowconfigure(0, weight=1)
