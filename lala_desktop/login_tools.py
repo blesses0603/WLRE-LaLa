@@ -119,7 +119,12 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                         role_info.set(
                             f"已解析角色：{result.character_name}（角色 ID {result.role_id}）"
                             f"｜場景 {result.scene}｜座標 {result.x}, {result.y}。")
+                        acknowledgement = (
+                            "已依舊版送出 C12-1／C3-2 初始化回覆；"
+                            if result.init_acks_sent else
+                            "尚未證實已送出世界初始化回覆；")
                         status.set("S3-1 角色資料完整解析，S1-11 初始化確認已收到；"
+                                   + acknowledgement +
                                    "試驗連線已關閉。仍非長連線正式角色同步。")
                     else:
                         # select_role() closes the trial socket even on failure.
