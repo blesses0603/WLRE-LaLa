@@ -13,14 +13,18 @@ import time
 from .login import LoginError, validate_credentials
 from .login_wire import (
     build_legacy_request, decode_legacy_reply, parse_legacy_role_slots,
-    decoder_for_legacy_fixture, OLD_TX_XOR,
+    decoder_for_legacy_fixture, OLD_TX_XOR, build_legacy_world_init_acks,
 )
 from .server_probe import LINE_SNAPSHOT
 from .wire import WireDecodeError
 from .legacy_world import parse_legacy_world_player
 
 
-MAX_TRIAL_PACKETS = 512  # bounded evidence collection; never silently lift this cap
+MAX_TRIAL_PACKETS = 512
+# The old client capture includes 1,848 inbound packets over its full session.
+# Selected-role bootstrap may exceed the 512-packet login-stage budget.
+MAX_ROLE_PACKETS = 4096
+MAX_ROLE_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +49,7 @@ class LegacyRoleTrialResult:
     y: int | None = None
     schema: str = "legacy-1262"
     ongoing_connection: bool = False
+    init_acks_sent: bool = False
 
 
 def _small_frame(main, sub, payload=b""):
@@ -72,6 +77,7 @@ class LegacyLoginTrial:
         self._verified_slots = ()
         self._endpoint = None
         self._attempted = False
+        self._formal_decoder = None  # retain partial frames across role-list and selection
 
     def close(self):
         self._stopped.set()
@@ -79,6 +85,7 @@ class LegacyLoginTrial:
             connection, self._socket = self._socket, None
             self._verified_slots = ()
             self._endpoint = None
+            self._formal_decoder = None
         if connection is not None:
             try:
                 connection.shutdown(socket.SHUT_RDWR)
@@ -99,6 +106,8 @@ class LegacyLoginTrial:
 
     def _wait_packets(self, connection, decoder, deadline, *, phase):
         packets_seen = 0
+        bytes_seen = 0
+        limit = MAX_ROLE_PACKETS if phase == "選角" else MAX_TRIAL_PACKETS
         saw_world_player = False
         saw_initial_data_complete = False
         while not self._stopped.is_set() and self._clock() < deadline:
@@ -110,6 +119,9 @@ class LegacyLoginTrial:
                 raise LoginError("登入期間 TCP 連線中斷") from None
             if not data:
                 raise LoginError("伺服器在完成舊版登入協定前關閉連線")
+            bytes_seen += len(data)
+            if phase == "選角" and bytes_seen > MAX_ROLE_BYTES:
+                raise LoginError("舊版選角接收資料超過 8 MiB 安全上限，停止試驗")
             try:
                 packets = decoder.feed(data)
             except WireDecodeError:
@@ -119,18 +131,18 @@ class LegacyLoginTrial:
                 key = (packet.main, packet.sub)
                 saw_world_player |= key == (3, 1)
                 saw_initial_data_complete |= key == (1, 11)
-                if packets_seen > MAX_TRIAL_PACKETS:
+                if packets_seen > limit:
                     if phase == "選角":
                         # Only report whitelisted packet types, never payloads,
                         # role details, account data, or arbitrary server text.
                         world = "已收到" if saw_world_player else "未收到"
                         ready = "已收到" if saw_initial_data_complete else "未收到"
                         raise LoginError(
-                            f"舊版選角試驗超過 {MAX_TRIAL_PACKETS} 個封包；"
+                            f"舊版選角試驗超過 {limit} 個封包；"
                             f"S3-1：{world}、S1-11：{ready}。"
                             "角色同步未完成，已停止試驗。")
                     raise LoginError(
-                        f"舊版{phase}試驗超過 {MAX_TRIAL_PACKETS} 個封包；"
+                        f"舊版{phase}試驗超過 {limit} 個封包；"
                         "已停止試驗，不能判定登入成功。")
                 if key == (1, 23):
                     try:
@@ -143,8 +155,9 @@ class LegacyLoginTrial:
             raise LoginError("已中斷登入試驗")
         raise LoginError("舊版登入回覆逾時；未確認目前協定")
 
-    def _reply_phase(self, connection, *, kind, deadline, need_roles=False):
-        decoder = decoder_for_legacy_fixture()
+    def _reply_phase(self, connection, *, kind, deadline,
+                     need_roles=False, decoder=None):
+        decoder = decoder if decoder is not None else decoder_for_legacy_fixture()
         accepted, slots = False, ()
         phase = "帳號驗證" if kind == 0 else "正式登入"
         for packet in self._wait_packets(connection, decoder, deadline, phase=phase):
@@ -215,10 +228,11 @@ class LegacyLoginTrial:
                 self._socket = formal
             if self._stopped.is_set():
                 raise LoginError("登入已取消；不發送正式登入封包")
+            formal_decoder = decoder_for_legacy_fixture()
             formal.sendall(build_legacy_request(account, password, kind=2))
             slots = self._reply_phase(
                 formal, kind=2, deadline=self._clock() + self._timeout,
-                need_roles=True)
+                need_roles=True, decoder=formal_decoder)
             if not slots or self._stopped.is_set():
                 raise LoginError("無法驗證舊版角色清單，拒絕選角")
             with self._lock:
@@ -226,6 +240,7 @@ class LegacyLoginTrial:
                     raise LoginError("登入已被中斷")
                 self._verified_slots = slots
                 self._endpoint = endpoint
+                self._formal_decoder = formal_decoder
             return LegacyTrialResult(True, True, slots)
         except (OSError, WireDecodeError) as error:
             self.close()
@@ -239,19 +254,20 @@ class LegacyLoginTrial:
 
         S1-11 alone is NOT a world-player snapshot. Strictly reject an
         incomplete or malformed S3-1, even if the "ready" event arrives.
-        The experimental socket closes after the check; a persistent session
-        requires a separately reviewed adapter and state publisher.
+        Legacy C12-1/C3-2 are emitted after complete initialization, then
+        the socket closes. A persistent session requires a separately
+        reviewed adapter and state publisher.
         """
         if type(slot) is not int or slot not in (1, 2):
             raise LoginError("角色槽位僅允許 1 或 2")
         with self._lock:
             connection = self._socket
-            if (self._stopped.is_set() or connection is None
+            decoder = self._formal_decoder
+            if (self._stopped.is_set() or connection is None or decoder is None
                     or slot not in self._verified_slots):
                 raise LoginError("尚未收到有效的舊版角色清單")
         try:
             connection.sendall(_small_frame(63, 2, bytes((slot,))))
-            decoder = decoder_for_legacy_fixture()
             player = None
             complete = False
             for packet in self._wait_packets(
@@ -268,9 +284,17 @@ class LegacyLoginTrial:
                 elif (packet.main, packet.sub) == (1, 11):
                     complete = True
                 if player is not None and complete:
+                    # Legacy SessionLogic sends these two acknowledgements only
+                    # after both validated world data and initialization marker.
+                    # This is still a one-shot experiment, never a trusted session.
+                    for ack in build_legacy_world_init_acks():
+                        if self._stopped.is_set():
+                            raise LoginError("已中斷選角試驗，不送出初始化回覆")
+                        connection.sendall(ack)
                     return LegacyRoleTrialResult(
                         slot, True, False, True, player.role_id,
-                        player.character_name, player.scene, player.x, player.y)
+                        player.character_name, player.scene, player.x, player.y,
+                        init_acks_sent=True)
             raise LoginError("缺少完整的 S3-1 角色資料或 S1-11 初始化確認")
         except OSError:
             raise LoginError("選角期間連線中斷") from None
