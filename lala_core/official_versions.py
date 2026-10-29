@@ -10,6 +10,7 @@ import re
 import socket
 import gzip
 import zlib
+import time
 import ssl
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -61,7 +62,10 @@ def require_public_url(url: str) -> str:
         valid = (
             parsed.scheme == "https" and parsed.hostname == "wlreftp.chinesegamer.net"
             and parsed.port is None and parsed.username is None and parsed.password is None
-            and not parsed.query and not parsed.fragment and
+            and (not parsed.query or (
+                parsed.path == "/WLN/TW/ResourcePath_PC.dat" and
+                re.fullmatch(r"[0-9]{1,20}(?:\.[0-9]{1,16})?", parsed.query) is not None
+            )) and not parsed.fragment and
             _APPROVED_PATH.fullmatch(parsed.path) is not None and
             "%" not in parsed.path and "\\" not in parsed.path
         )
@@ -194,7 +198,22 @@ def observe_official_versions(*, fetcher=None, checked_at_utc=None) -> ObservedV
     """恰好三個官方公開 GET，不自動連線遊戲、不寫入快取、不取得角色資料。"""
     fetcher = fetch_public_bytes if fetcher is None else fetcher
     try:
-        exe, data_ver = parse_version_map(fetcher(VERSION_MAP_URL))
+        # Older official clients have used an unkeyed numeric cache-buster.
+        # If the canonical response is malformed, retry this exact approved
+        # public file once with a numeric nonce; never guess DataVer.
+        map_body = fetcher(VERSION_MAP_URL)
+        try:
+            exe, data_ver = parse_version_map(map_body)
+        except OfficialVersionError as initial:
+            try:
+                fresh_url = VERSION_MAP_URL + "?" + str(time.time_ns())
+                exe, data_ver = parse_version_map(fetcher(fresh_url))
+            except (OfficialVersionError, OSError, TypeError, ValueError, KeyError) as retry_error:
+                # Preserve the initial field-level diagnostic without leaking
+                # untrusted server content, URL, or transport exception text.
+                raise OfficialVersionError(
+                    str(initial) + "；同一官方來源重新查詢仍未通過驗證"
+                ) from retry_error
         versions = tuple((package, parse_package_revision(fetcher(package_url(
             data_ver, package, "version")))) for package in PACKAGES)
     except OfficialVersionError:

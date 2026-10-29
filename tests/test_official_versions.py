@@ -92,10 +92,52 @@ class VersionsTests(unittest.TestCase):
             "https://wlreftp.chinesegamer.net.evil.test/WLN/TW/ResourcePath_PC.dat",
             "https://wlreftp.chinesegamer.net/WLN/TW/../secret",
             VERSION_MAP_URL + "?redirect=1",
+            VERSION_MAP_URL + "?token=123",
+            VERSION_MAP_URL + "?123&foo=1",
             "https://wlreftp.chinesegamer.net:8443/WLN/TW/ResourcePath_PC.dat",
         ):
             with self.subTest(url=url), self.assertRaises(OfficialVersionError):
                 require_public_url(url)
+
+    def test_numeric_cache_buster_only_on_resource_map(self):
+        self.assertEqual(require_public_url(VERSION_MAP_URL + "?46317.9367265972"),
+                         VERSION_MAP_URL + "?46317.9367265972")
+        self.assertEqual(require_public_url(VERSION_MAP_URL + "?1234567890"),
+                         VERSION_MAP_URL + "?1234567890")
+        with self.assertRaises(OfficialVersionError):
+            require_public_url(package_url("1.3.21", "MainPackage", "version") + "?123")
+
+    def test_malformed_canonical_map_retries_once_without_guessing(self):
+        from unittest.mock import patch
+        from lala_core import official_versions
+        urls = []
+        def fetched(url):
+            urls.append(url)
+            if url == VERSION_MAP_URL:
+                return b'[{"ExeVer":"1.3.0","DataVer":null}]'
+            if url.startswith(VERSION_MAP_URL + "?"):
+                return b'[{"ExeVer":"1.3.0","DataVer":"1.3.21"}]'
+            return b'1275_2026_10_21_18_27_33_84'
+        with patch.object(official_versions.time, "time_ns", return_value=1234567890):
+            observed = observe_official_versions(fetcher=fetched)
+        self.assertEqual(observed.data_version, "1.3.21")
+        self.assertEqual(urls[:2], [VERSION_MAP_URL, VERSION_MAP_URL + "?1234567890"])
+        self.assertEqual(len(urls), 4)
+        self.assertFalse(observed.protocol_compatible)
+
+    def test_twice_invalid_preserves_failsafe_diagnostic(self):
+        from unittest.mock import patch
+        from lala_core import official_versions
+        urls = []
+        def fetched(url):
+            urls.append(url)
+            return b'[{"ExeVer":"1.3.0","DataVer":"REDACTED_SECRET"}]'
+        with patch.object(official_versions.time, "time_ns", return_value=2222):
+            with self.assertRaises(OfficialVersionError) as context:
+                observe_official_versions(fetcher=fetched)
+        self.assertEqual(urls, [VERSION_MAP_URL, VERSION_MAP_URL + "?2222"])
+        self.assertIn("第 1 筆 DataVer 格式不符", str(context.exception))
+        self.assertNotIn("REDACTED_SECRET", str(context.exception))
 
     def test_bounded_https_response(self):
         opener = Mock(side_effect=lambda req, timeout: Response(
