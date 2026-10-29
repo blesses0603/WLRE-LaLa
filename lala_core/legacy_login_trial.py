@@ -17,6 +17,7 @@ from .login_wire import (
 )
 from .server_probe import LINE_SNAPSHOT
 from .wire import WireDecodeError
+from .legacy_world import parse_legacy_world_player
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,14 @@ class LegacyRoleTrialResult:
     role_slot: int
     world_packet_observed: bool
     official_identity_verified: bool = False
+    initial_data_complete: bool = False
+    role_id: int | None = None
+    character_name: str = ""
+    scene: int | None = None
+    x: int | None = None
+    y: int | None = None
+    schema: str = "legacy-1262"
+    ongoing_connection: bool = False
 
 
 def _small_frame(main, sub, payload=b""):
@@ -206,29 +215,45 @@ class LegacyLoginTrial:
             raise
 
     def select_role(self, slot: int) -> LegacyRoleTrialResult:
+        """Explicit legacy C63-2 and *both* mandatory S3-1/S1-11 responses.
+
+        S1-11 alone is NOT a world-player snapshot. Strictly reject an
+        incomplete or malformed S3-1, even if the "ready" event arrives.
+        The experimental socket closes after the check; a persistent session
+        requires a separately reviewed adapter and state publisher.
+        """
         if type(slot) is not int or slot not in (1, 2):
             raise LoginError("角色槽位僅允許 1 或 2")
         with self._lock:
             connection = self._socket
-            if self._stopped.is_set() or connection is None or slot not in self._verified_slots:
+            if (self._stopped.is_set() or connection is None
+                    or slot not in self._verified_slots):
                 raise LoginError("尚未收到有效的舊版角色清單")
         try:
             connection.sendall(_small_frame(63, 2, bytes((slot,))))
-            reader = decoder_for_legacy_fixture()
+            decoder = decoder_for_legacy_fixture()
+            player = None
+            complete = False
             for packet in self._wait_packets(
-                    connection, reader, self._clock() + self._timeout):
+                    connection, decoder, self._clock() + self._timeout):
                 if (packet.main, packet.sub) == (3, 1):
-                    # This is evidence of an old-format world-player packet,
-                    # not a decoded/verified modern authoritative character.
-                    if len(packet.payload) < 10:
-                        raise LoginError("角色資料封包長度不足")
-                    return LegacyRoleTrialResult(slot, True)
-                if (packet.main, packet.sub) == (1, 11):
-                    return LegacyRoleTrialResult(slot, True)
-            raise LoginError("選角沒有收到舊版的世界資料訊號")
+                    try:
+                        candidate = parse_legacy_world_player(packet)
+                    except WireDecodeError:
+                        raise LoginError("S3-1 角色資料格式與舊版不符，拒絕同步") from None
+                    if player is not None and candidate.role_id != player.role_id:
+                        raise LoginError("選角時收到不一致的角色資料")
+                    player = candidate
+                elif (packet.main, packet.sub) == (1, 11):
+                    complete = True
+                if player is not None and complete:
+                    return LegacyRoleTrialResult(
+                        slot, True, False, True, player.role_id,
+                        player.character_name, player.scene, player.x, player.y)
+            raise LoginError("缺少完整的 S3-1 角色資料或 S1-11 初始化確認")
         except OSError:
             raise LoginError("選角期間連線中斷") from None
         finally:
-            # This prototype cannot maintain an audited gameplay session.
-            # Close explicitly; never claim the account remains online.
+            # Read-only compatibility observation, not a verified gameplay
+            # session: no commands or automatic reconnect.
             self.close()
