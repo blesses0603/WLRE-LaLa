@@ -64,6 +64,14 @@ if errorlevel 1 (
 )
 
 echo [LaLa] Starting LaLa desktop UI...
+rem pythonw.exe has no console. "start" also lets this BAT exit immediately.
+rem The GUI receives LALA_STARTUP_RESOURCE_STATUS via inherited environment.
+if exist "%VENV_DIR%\Scripts\pythonw.exe" (
+    start "" "%VENV_DIR%\Scripts\pythonw.exe" -m lala_desktop
+    if errorlevel 1 goto :launch_error
+    exit /b 0
+)
+rem Fallback for unusual Python distributions without pythonw.exe.
 "%VENV_PY%" -m lala_desktop
 if errorlevel 1 goto :launch_error
 exit /b 0

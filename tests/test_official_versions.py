@@ -38,6 +38,44 @@ class VersionsTests(unittest.TestCase):
             with self.subTest(body=body), self.assertRaises(OfficialVersionError):
                 parse_version_map(body)
 
+    def test_legacy_observed_utf16_gzip_and_final_trailing_comma(self):
+        import gzip
+        fixture = (
+            b'[\r\n'
+            b'{"ExeVer":"1.1.3","DataVer":"1.3.21"},\r\n'
+            b'{"ExeVer":"1.1.4","DataVer":"1.3.21"},\r\n'
+            b'{"ExeVer":"1.2.0","DataVer":"1.3.21"},\r\n'
+            b'{"ExeVer":"1.3.0","DataVer":"1.3.21"},\r\n'
+            b']'
+        )
+        self.assertEqual(len(fixture), 164)
+        for data in (fixture, fixture.decode("utf-8").encode("utf-16"),
+                     gzip.compress(fixture)):
+            with self.subTest(size=len(data)):
+                self.assertEqual(parse_version_map(data), ("1.3.0", "1.3.21"))
+
+    def test_bad_rows_report_field_and_index_without_echoing_server_value(self):
+        cases = [
+            (b'[{"ExeVer":"1.3.0"}]', "DataVer 缺少"),
+            (b'[{"ExeVer":"1.3.0","DataVer":12}]', "DataVer 不是文字"),
+            (b'[{"ExeVer":"1.3.0","DataVer":"PRIVATE_TOKEN"}]',
+             "DataVer 格式不符"),
+            (b'[false]', "不是 JSON 物件"),
+        ]
+        for data, message in cases:
+            with self.subTest(data=data), self.assertRaises(OfficialVersionError) as ctx:
+                parse_version_map(data)
+            self.assertIn("第 1 筆", str(ctx.exception))
+            self.assertIn(message, str(ctx.exception))
+            self.assertNotIn("PRIVATE_TOKEN", str(ctx.exception))
+
+    def test_html_and_oversized_gzip_fail_closed(self):
+        import gzip
+        with self.assertRaisesRegex(OfficialVersionError, "HTML"):
+            parse_version_map(b"<html><body>bad CDN response</body></html>")
+        with self.assertRaises(OfficialVersionError):
+            parse_version_map(gzip.compress(b"x" * (16384 + 1)))
+
     def test_full_package_revision_not_integer(self):
         revision = "1275_2026_10_21_18_29_38_49"
         self.assertEqual(parse_package_revision(revision.encode()), revision)

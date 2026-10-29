@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 import json
 import re
 import socket
+import gzip
+import zlib
 import ssl
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -119,32 +121,58 @@ def fetch_public_bytes(url: str, *, limit: int = MAX_VERSION_BYTES,
         raise OfficialVersionError("官方 HTTPS 資源讀取失敗") from exc
 
 
-def parse_version_map(body: bytes) -> tuple[str, str]:
-    """挑選官方目前最高 ExeVer；不假設 1.3.0 或 1275 永久有效。"""
+def _decode_version_map(body: bytes) -> str:
+    """相容舊版實際觀察到的 UTF-8/BOM、UTF-16 BOM 與 gzip，解壓有容量上限。"""
     if not isinstance(body, bytes) or not 0 < len(body) <= MAX_VERSION_BYTES:
         raise OfficialVersionError("官方版本對照表長度無效")
+    if body.startswith(b"\x1f\x8b"):
+        try:
+            decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            decoded = decoder.decompress(body, MAX_VERSION_BYTES + 1)
+            if (len(decoded) > MAX_VERSION_BYTES or not decoder.eof or
+                    decoder.unconsumed_tail or decoder.unused_data):
+                raise OfficialVersionError("官方版本對照表 gzip 大小／內容不完整")
+            body = decoded
+        except (ValueError, zlib.error) as exc:
+            raise OfficialVersionError("官方版本對照表 gzip 內容無效") from exc
     try:
-        content = body.decode("utf-8-sig").strip()
-        # 已觀察格式可能在 JSON 陣列最後一筆物件後多一個逗號。
-        if content.endswith(",]"):
-            content = content[:-2] + "]"
-        else:
-            content = re.sub(r",(?=\s*\]\s*\Z)", "", content, count=1)
+        content = (body.decode("utf-16") if body.startswith((b"\xff\xfe", b"\xfe\xff"))
+                   else body.decode("utf-8-sig")).strip()
+    except UnicodeError as exc:
+        raise OfficialVersionError("官方版本對照表編碼不是 UTF-8/UTF-16 BOM") from exc
+    if content[:32].lower().startswith(("<!doctype html", "<html", "<head", "<body")):
+        raise OfficialVersionError("官方 CDN 回傳 HTML，而非版本對照表")
+    return content
+
+
+def parse_version_map(body: bytes) -> tuple[str, str]:
+    """嚴格驗證官方 ExeVer/DataVer；錯誤只報欄位與型態，不洩漏回應內容。"""
+    content = _decode_version_map(body)
+    # 只容忍已在舊版 Fiddler 證實的「陣列最後一個多餘逗號」。
+    content = re.sub(r",(?=\s*\]\s*\Z)", "", content, count=1)
+    try:
         table = json.loads(content)
     except (ValueError, UnicodeError) as exc:
-        raise OfficialVersionError("官方版本對照表非支援的 JSON") from exc
+        raise OfficialVersionError("官方版本對照表不是支援的 JSON 陣列") from exc
     if not isinstance(table, list) or not 1 <= len(table) <= 128:
-        raise OfficialVersionError("官方版本對照表筆數無效")
-    versions = {}
-    for row in table:
-        if (not isinstance(row, dict) or
-                not isinstance(row.get("ExeVer"), str) or
-                not isinstance(row.get("DataVer"), str) or
-                not _GAME_VERSION.fullmatch(row["ExeVer"]) or
-                not _GAME_VERSION.fullmatch(row["DataVer"])):
-            raise OfficialVersionError("官方版本對照表欄位無效")
+        raise OfficialVersionError("官方版本對照表不是 1～128 筆陣列")
+    versions: dict[str, str] = {}
+    for index, row in enumerate(table, start=1):
+        if not isinstance(row, dict):
+            raise OfficialVersionError(f"官方版本表第 {index} 筆不是 JSON 物件")
+        for field in ("ExeVer", "DataVer"):
+            value = row.get(field)
+            if not isinstance(value, str):
+                kind = "缺少" if field not in row else "不是文字"
+                raise OfficialVersionError(f"官方版本表第 {index} 筆 {field} {kind}；已停止自檢")
+            if not _GAME_VERSION.fullmatch(value):
+                # 只記錄欄位／長度，不輸出未信任的完整值或 URL。
+                raise OfficialVersionError(
+                    f"官方版本表第 {index} 筆 {field} 格式不符三段數字"
+                    f"（長度 {len(value)}）；已停止自檢"
+                )
         if row["ExeVer"] in versions:
-            raise OfficialVersionError("官方程式版本出現重複／衝突紀錄")
+            raise OfficialVersionError(f"官方版本表第 {index} 筆 ExeVer 重複；已停止自檢")
         versions[row["ExeVer"]] = row["DataVer"]
     newest = max(versions, key=lambda s: tuple(int(x) for x in s.split(".")))
     return newest, versions[newest]

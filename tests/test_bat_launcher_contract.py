@@ -67,6 +67,14 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn("Launching OFFLINE UI only.", self.content)
         self.assertIn('--check [--py-only] skips network and GUI.', self.content)
 
+    def test_gui_launches_without_covering_console(self):
+        self.assertIn('if exist "%VENV_DIR%\\Scripts\\pythonw.exe" (', self.content)
+        self.assertIn('start "" "%VENV_DIR%\\Scripts\\pythonw.exe" -m lala_desktop',
+                      self.content)
+        self.assertLess(self.content.index("LALA_STARTUP_RESOURCE_STATUS=failed"),
+                        self.content.index("pythonw.exe"))
+        self.assertIn('"%VENV_PY%" -m lala_desktop', self.content)
+
     def test_launcher_explains_missing_python(self):
         self.assertIn("py -0p", self.content)
         self.assertIn("Python 3.10 is not supported by Pillow 13.", self.content)
