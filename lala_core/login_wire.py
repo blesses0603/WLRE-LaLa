@@ -99,3 +99,15 @@ def parse_legacy_role_slots(packet: ObservedPacket) -> tuple[int, ...]:
         r.take(4*4 + 2 + 4*2 + 4*2)
         slots.append(slot)
     return tuple(sorted(slots))
+
+def build_legacy_world_init_acks() -> tuple[bytes, bytes]:
+    """Old client SessionLogic.receive: C12-1 then C3-2 after S3-1/S1-11.
+
+    These are candidates from the legacy implementation, not evidence that
+    a present-day server is authentic. Calling this only builds bytes.
+    """
+    def frame(main: int, sub: int) -> bytes:
+        plain = b"\xc4\xc6" + struct.pack("<H", 2) + bytes((main, sub))
+        return bytes(value ^ OLD_TX_XOR for value in plain)
+
+    return frame(12, 1), frame(3, 2)
