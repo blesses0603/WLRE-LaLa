@@ -10,6 +10,7 @@ from .window_chrome import install_borderless
 from .rounded_widgets import RoundedPanel, rounded_points
 from .game_buttons import SpriteButton, icon_photo
 from .layout_policy import right_column_width
+from .local_tools import build_local_tool
 
 
 class LaLaDesktop(tk.Tk):
@@ -327,10 +328,17 @@ class LaLaDesktop(tk.Tk):
         chrome.bind_drag(window, pane, toolbar, label)
         self.text(pane, feature.description, size=12, wraplength=510,
                   justify="left").pack(anchor="w", padx=24)
-        self.text(pane, "目前僅有 UI 佔位，尚未接入遊戲功能。",
-                  size=12, color=t.WARN).pack(anchor="w", padx=24, pady=(20, 8))
-        self.text(pane, "舊版參考：" + feature.legacy_area, size=10,
-                  color=t.MUTED, wraplength=510, justify="left").pack(anchor="w", padx=24)
+        tool_ready = build_local_tool(pane, key, font_name=self._font,
+                                      button_factory=self._button)
+        if not tool_ready:
+            self.text(pane, "目前僅有 UI 入口；尚未接入遊戲伺服器。",
+                      size=12, color=t.WARN).pack(anchor="w", padx=24, pady=(20, 8))
+        else:
+            self.text(pane, "目前為手動資料規劃，非遊戲角色同步或自動操作。",
+                      size=10, color=t.WARN).pack(anchor="w", padx=24, pady=(2, 4))
+        if not tool_ready:
+            self.text(pane, "舊版參考：" + feature.legacy_area, size=10,
+                      color=t.MUTED, wraplength=510, justify="left").pack(anchor="w", padx=24)
         self._button(pane, "關閉", window.destroy).pack(anchor="e", side="bottom", padx=24, pady=20)
 
 
