@@ -3,8 +3,6 @@
 不改變視窗尺寸，也不管理遊戲連線。只讓綁定的空白頁首區可以拖曳。
 """
 import sys
-from .rounded_window import apply_windows_rounded_region
-from . import theme as t
 
 
 class BorderlessChrome:
@@ -17,7 +15,6 @@ class BorderlessChrome:
         # 在 Windows 上保留工作列／Alt+Tab 視窗入口（需原生 Win32；其他平台不修改）。
         if sys.platform == "win32":
             window.after_idle(self._register_win32_taskbar)
-            window.after_idle(self._apply_rounding)
 
     def bind_drag(self, *widgets):
         """只綁在標題文字及其背景，避免攔截功能按鈕與輸入框。"""
@@ -68,15 +65,10 @@ class BorderlessChrome:
             self.window.overrideredirect(True)
             if sys.platform == "win32":
                 self._register_win32_taskbar()
-                self._apply_rounding()
         except Exception:
             # 視窗可能在還原事件與 after_idle 間被使用者關閉。
             if self.window.winfo_exists():
                 raise
-
-    def _apply_rounding(self):
-        """對目前視窗套用真正的 Windows 圓角區域，其他平台安全略過。"""
-        apply_windows_rounded_region(self.window, radius=t.WINDOW_RADIUS)
 
     def _register_win32_taskbar(self):
         """移除工具視窗樣式，使用 Windows 工作列與 Alt+Tab 顯示主視窗。
