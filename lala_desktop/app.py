@@ -77,7 +77,7 @@ class LaLaDesktop(tk.Tk):
 
         body = tk.Frame(self, bg=t.BG)
         body.pack(fill="both", expand=True, padx=9, pady=(3, 8))
-        # 右欄以「戰場陣形」寬版為準（1280 主視窗時為 680px）。
+        # 右欄以截圖的窄版為準（1280 主視窗時為 350px）。
         # 停止子元件的幾何傳播，避免切換事件／戰場後左右欄重新分配。
         # winfo_width() is 1 before Tk has finished mapping the window.
         requested_width = right_column_width(self._main_window_size[0])

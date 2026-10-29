@@ -44,7 +44,8 @@ class DesktopSmokeTests(unittest.TestCase):
             first_left = root._left_panel.winfo_width()
             self.assertEqual(root._right_panel_width, target_width)
             self.assertEqual(first_width, target_width)
-            self.assertGreater(first_left, 0)
+            self.assertLessEqual(first_width, 350)
+            self.assertGreater(first_left, first_width)
             map_width = root._map_canvas.winfo_width()
             self.assertGreater(map_width, target_width - 45)
             for key in ("battle", "events", "battle", "events"):
