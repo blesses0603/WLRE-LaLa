@@ -145,6 +145,8 @@ class LegacyLoginTrial:
                         f"舊版{phase}試驗超過 {limit} 個封包；"
                         "已停止試驗，不能判定登入成功。")
                 if key == (1, 23):
+                    if packet.payload:
+                        raise LoginError("舊版 S1-23 心跳要求格式不符，停止試驗")
                     try:
                         connection.sendall(_small_frame(63, 5))
                     except OSError:
@@ -282,6 +284,8 @@ class LegacyLoginTrial:
                         raise LoginError("選角時收到不一致的角色資料")
                     player = candidate
                 elif (packet.main, packet.sub) == (1, 11):
+                    if packet.payload:
+                        raise LoginError("舊版 S1-11 初始化訊號格式不符，停止試驗")
                     complete = True
                 if player is not None and complete:
                     # Legacy SessionLogic sends these two acknowledgements only
