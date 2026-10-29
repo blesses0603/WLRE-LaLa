@@ -328,3 +328,26 @@ class LegacyLoginTrialTests(unittest.TestCase):
             trial.select_role(1)
         self.assertEqual(len(sockets[1].sent), 2)
         self.assertTrue(sockets[1].closed)
+
+    def test_nonempty_heartbeat_is_rejected_without_reply(self):
+        trial, sockets, opened = self.setup_adapter(
+            [frame(1, 23, b"\x01") + frame(63, 7, b"\0\0")], [])
+        with self.assertRaisesRegex(LoginError, "S1-23"):
+            trial.authenticate(line_id=101, account="fake",
+                               password="fake", consent=True)
+        self.assertEqual(len(sockets[0].sent), 1)
+        self.assertEqual(len(opened), 1)
+        self.assertTrue(sockets[0].closed)
+
+    def test_nonempty_s1_11_rejected_without_init_ack(self):
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11, b"\x01")],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        with self.assertRaisesRegex(LoginError, "S1-11"):
+            trial.select_role(1)
+        self.assertEqual(len(sockets[1].sent), 2)  # login, select only
+        self.assertTrue(sockets[1].closed)
