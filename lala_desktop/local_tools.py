@@ -3,6 +3,10 @@
 由主視窗的功能按鈕開啟，只有使用者自行填寫資料才進行離線計算。
 """
 import tkinter as tk
+from queue import Empty, SimpleQueue
+from threading import Thread
+from lala_core.resource_inspector import inspect
+from lala_core.official_versions import OfficialVersionError
 from . import theme as t
 from lala_core.efficiency import ExperienceSample, estimate_experience
 from lala_core.planning import (
@@ -29,7 +33,10 @@ def parse_pairs(text):
 
 
 def build_local_tool(parent, key, *, font_name, button_factory):
-    """True：渲染具實際離線運算的 UI；False：仍顯示尚未接入的預覽。"""
+    """True：有實際可操作工具；官方資源查詢僅在使用者按鈕後唯讀執行。"""
+    if key == "resources":
+        return _build_resource_inspector(parent, font_name=font_name,
+                                         button_factory=button_factory)
     if key not in ("efficiency", "crafting", "inventory", "expeditions"):
         return False
 
@@ -112,6 +119,69 @@ def build_local_tool(parent, key, *, font_name, button_factory):
     tk.Label(parent, textvariable=status, fg=t.CYAN, bg=t.PANEL,
              font=(font_name, 10), wraplength=540, justify="left",
              anchor="w").pack(fill="x", padx=24, pady=(8, 4))
+    return True
+
+
+def _build_resource_inspector(parent, *, font_name, button_factory):
+    """按下後才允許官方唯讀 GET；背景執行與 Tk 主線程分離。"""
+    state = {"running": False}
+    results = SimpleQueue()
+    status = tk.StringVar(master=parent, value="尚未查詢。官方資料檢查不等於可以登入。")
+    area = tk.Frame(parent, bg=t.PANEL)
+    area.pack(fill="x", padx=24, pady=(8, 6))
+
+    def poll_result():
+        if not parent.winfo_exists():
+            return
+        try:
+            message = results.get_nowait()
+        except Empty:
+            parent.after(80, poll_result)
+            return
+        state["running"] = False
+        for control in controls:
+            control.set_enabled(True)
+        status.set(message)
+
+    def request(manifests):
+        if state["running"]:
+            return
+        state["running"] = True
+        status.set("讀取官方公開資料中；不會登入遊戲或傳送操作指令…")
+        for control in controls:
+            control.set_enabled(False)
+
+        def worker():
+            try:
+                report = inspect(with_manifests=manifests)
+                text = (
+                    f"ExeVer {report['exe_version']}；DataVer {report['data_version']}。"
+                    f"{'兩份 Manifest 傳輸完整性通過。' if manifests else '僅取得版本資訊。'}"
+                    " 尚未驗證資源解碼與正式服登入。"
+                )
+            except OfficialVersionError as error:
+                text = "官方資源檢查失敗：" + str(error) + "；登入保持停用。"
+            except Exception:
+                # 對 UI 不暴露可能包含 URL、代理資訊與個資的底層 traceback。
+                text = "資源檢查遇到未預期錯誤；登入保持停用。"
+            results.put(text)
+
+        Thread(target=worker, daemon=True, name="lala-official-readonly-check").start()
+        parent.after(80, poll_result)
+
+    controls = [
+        button_factory(area, "查詢官方版本", lambda: request(False)),
+        button_factory(area, "驗證兩包 Manifest", lambda: request(True)),
+    ]
+    for control in controls:
+        control.pack(side="left", padx=(0, 8))
+    tk.Label(parent, textvariable=status, fg=t.CYAN, bg=t.PANEL,
+             font=(font_name, 10), wraplength=540, justify="left",
+             anchor="w").pack(fill="x", padx=24, pady=(8, 4))
+    tk.Label(parent, text="此功能僅使用官方公開 HTTPS 版本及 Manifest，不需帳密。"
+                          "不下載遊戲 Bundle、不寫入安裝目錄。",
+             fg=t.MUTED, bg=t.PANEL, font=(font_name, 10),
+             wraplength=540, justify="left").pack(fill="x", padx=24)
     return True
 
 
