@@ -29,7 +29,7 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertIn("中斷", labels)
                 self.assertIn("測試 TCP", labels)
                 self.assertIn("選擇角色", labels)
-                fields = [w for w in descendants if isinstance(w, tk.Entry)]
+                fields = [w for w in descendants if type(w) is tk.Entry]
                 self.assertEqual(len(fields), 2)
                 self.assertEqual(fields[1].cget("show"), "●")
                 fields[0].insert(0, "tester")
