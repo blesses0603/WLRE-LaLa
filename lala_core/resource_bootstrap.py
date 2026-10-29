@@ -121,6 +121,14 @@ def install_resources(*, root=None, observer=None, fetcher=None, opener=None,
         root.mkdir(parents=True, exist_ok=True)
         if shutil.disk_usage(root).free < required + 512 * 1024**2:
             raise InstallError("硬碟可用空間不足，未開始安裝")
+    # A previously valid catalog must not authorize direct GUI entry if a
+    # newer official catalog is currently being installed or that update
+    # stops midway. Only completing all verification clears this sentinel.
+    # Keep it on interruption to fail closed; a later successful install
+    # safely overwrites the staged marker and removes it.
+    _atomic(root / "install.pending", json.dumps({
+        "schema": 1, "catalog_key": catalog.transport.catalog_key,
+    }, sort_keys=True).encode("ascii"))
     downloaded = 0
     missing_ids = {(s.package, s.revision, s.name) for s in missing}
     for i, spec in enumerate(specs, start=1):
@@ -155,6 +163,8 @@ def install_resources(*, root=None, observer=None, fetcher=None, opener=None,
     if len(marker) > 4096:
         raise InstallError("資源安裝清單過大")
     _atomic(root / "installed.json", marker)
+    # Never remove the pending marker before the completed receipt exists.
+    (root / "install.pending").unlink()
     return InstallResult(catalog.transport.catalog_key, catalog.transport.data_version,
                          len(specs), downloaded, len(specs)-downloaded, sum(s.size for s in specs))
 
@@ -164,6 +174,10 @@ def verify_installed(*, root=None, expected_catalog_key=None):
     root = private_root() if root is None else Path(root)
     receipt = root / "installed.json"
     try:
+        # A partial/in-flight update is not a completed installation even
+        # when an older installed.json still exists on disk.
+        if (root / "install.pending").exists() or (root / "install.pending").is_symlink():
+            raise InstallError("官方資源正在安裝或更新失敗，須完成驗證後才能進入")
         if receipt.is_symlink() or receipt.stat().st_size > 4096:
             raise InstallError("安裝憑證無效")
         marker = json.loads(receipt.read_text(encoding="ascii"))

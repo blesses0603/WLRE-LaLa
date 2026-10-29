@@ -93,6 +93,26 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(repaired.files_downloaded, 1)
         verify_installed(root=self.root)
 
+    def test_interrupted_update_blocks_old_receipt_until_recovery(self):
+        first = self.install()
+        self.assertTrue(verify_installed(root=self.root)["resources_installed"])
+        # Simulate the official next version being observed and a Bundle
+        # transfer failing after the old installed receipt was created.
+        def broken(req, timeout):
+            return Response(req.full_url, CONTENT + b"corrupted")
+        bundle = next(self.root.rglob("*.bundle"))
+        bundle.write_bytes(b"corrupted")
+        with patch.object(self, "opener", broken), self.assertRaises(InstallError):
+            self.install()
+        self.assertTrue((self.root / "installed.json").exists())
+        self.assertTrue((self.root / "install.pending").exists())
+        with self.assertRaises(InstallError):
+            verify_installed(root=self.root)
+        repaired = self.install()
+        self.assertEqual(repaired.catalog_key, first.catalog_key)
+        self.assertFalse((self.root / "install.pending").exists())
+        self.assertTrue(verify_installed(root=self.root)["resources_installed"])
+
     def test_download_integrity_failure_never_marks_success(self):
         def wrong(req, timeout):
             return Response(req.full_url, CONTENT + b"bad")
