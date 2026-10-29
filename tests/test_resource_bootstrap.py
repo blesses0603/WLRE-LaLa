@@ -9,7 +9,26 @@ import zlib
 
 from lala_core.official_versions import ObservedVersions, OfficialVersionError
 from lala_core.resource_bootstrap import bootstrap, install_index
-from tests.test_yooasset_index import pack_manifest, REVISION
+REVISION = "1286_2026_10_29_13_42_37_94"
+
+
+def _txt(value):
+    encoded = value.encode("utf-8")
+    return struct.pack("<H", len(encoded)) + encoded
+
+
+def pack_manifest(package="DataPackage", revision=REVISION):
+    body = struct.pack("<I", 0x00594F4F) + _txt("2.2.5")
+    body += struct.pack("<BBBii", 1, 0, 1, 1, 2)
+    body += (_txt("ScriptableBuildPipeline") + _txt(package)
+             + _txt(revision) + _txt(""))
+    body += struct.pack("<i", 1)
+    body += _txt("a") + _txt("Assets/a") + _txt("guid-a")
+    body += struct.pack("<H", 0) + struct.pack("<i", 0)
+    body += struct.pack("<i", 1) + _txt("A") + struct.pack("<I", 99)
+    body += _txt("0123456789abcdef0123456789abcdef") + _txt("12ab34cd")
+    body += struct.pack("<qBHH", 40, 0, 0, 0)
+    return body
 
 
 def observed():
