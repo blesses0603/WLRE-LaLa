@@ -29,3 +29,9 @@ OVERVIEW_ROWS = (
     (("補給紀錄", "supplies"), ("煉金", "alchemy"), ("製作", "crafting")),
     (("隊伍檢查", "party"), ("經驗效率", "efficiency")),
 )
+
+# 統一的圓角大小（Win32 外框、Canvas 面板、按鈕）。
+WINDOW_RADIUS = 20
+PANEL_RADIUS = 16
+CARD_RADIUS = 13
+BUTTON_RADIUS = 11

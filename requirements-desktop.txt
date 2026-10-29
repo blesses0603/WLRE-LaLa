@@ -1,0 +1,2 @@
+# 舊版遊戲按鈕 SpriteAtlas PNG 與九宮格縮放
+Pillow==11.3.0
