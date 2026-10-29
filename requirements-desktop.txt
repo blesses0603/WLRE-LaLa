@@ -1,0 +1,2 @@
+# Pillow 13.0.0 requires Python 3.11+; Windows BAT supports 3.11 - 3.15
+Pillow==13.0.0
