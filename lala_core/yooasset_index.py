@@ -33,6 +33,8 @@ class IndexedBundle:
     name: str
     file_size: int
     dependencies: tuple[int, ...]
+    file_hash: str = ""
+    file_crc: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +70,8 @@ class ParsedManifest:
 class ParsedCatalog:
     transport: ManifestPair
     indexes: tuple[ParsedManifest, ParsedManifest]
+    # Only held in memory until a verified local installation is committed.
+    manifest_bytes: tuple[bytes, ...] = ()
     # Parsed binary structure alone is NOT sufficient to authenticate to game.
     protocol_compatible: bool = False
 
@@ -184,8 +188,8 @@ def parse_manifest(data: bytes, *, package: str, revision: str) -> ParsedManifes
     for _ in range(count):
         name = r.text(max_length=2048)
         r.u32()  # Unity CRC
-        r.text(max_length=256)  # file hash
-        r.text(max_length=256)  # file CRC
+        file_hash = r.text(max_length=256)
+        file_crc = r.text(max_length=256)
         size = r.i64()
         r.boolean()  # encrypted
         r.strings()
@@ -193,7 +197,7 @@ def parse_manifest(data: bytes, *, package: str, revision: str) -> ParsedManifes
         if not name or name in seen_names or size < 0:
             raise OfficialVersionError("Manifest Bundle 名稱／大小異常")
         seen_names.add(name)
-        bundles.append(IndexedBundle(name, size, depends))
+        bundles.append(IndexedBundle(name, size, depends, file_hash, file_crc))
 
     if r.at != len(r.data):
         raise OfficialVersionError("Manifest 尾端出現未知資料")
@@ -217,7 +221,7 @@ def fetch_parsed_catalog(observation: ObservedVersions, *, fetcher=None) -> Pars
     if not isinstance(observation, ObservedVersions):
         raise OfficialVersionError("缺少官方版本觀察")
     fetcher = fetch_public_bytes if fetcher is None else fetcher
-    receipts, indexes = [], []
+    receipts, indexes, payloads = [], [], []
     for package in PACKAGES:
         try:
             crc = fetcher(package_url(observation.data_version, package, "hash"), limit=8)
@@ -231,5 +235,6 @@ def fetch_parsed_catalog(observation: ObservedVersions, *, fetcher=None) -> Pars
         index = parse_manifest(data, package=package, revision=receipt.package_revision)
         receipts.append(receipt)
         indexes.append(index)
+        payloads.append(data)
     pair = combine_manifest_receipts(observation, tuple(receipts))
-    return ParsedCatalog(pair, tuple(indexes))
+    return ParsedCatalog(pair, tuple(indexes), tuple(payloads))
