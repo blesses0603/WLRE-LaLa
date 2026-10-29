@@ -110,6 +110,20 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.urls, [])
         self.assertFalse((self.root / "installed.json").exists())
 
+    def test_version_change_during_transfer_does_not_mark_success(self):
+        calls = [0]
+        def drifting():
+            calls[0] += 1
+            value = observed()
+            if calls[0] == 1:
+                return value
+            return ObservedVersions(
+                value.exe_version, "1.4.99", value.package_versions, "changed")
+        with self.assertRaises(InstallError):
+            install_resources(root=self.root, observer=drifting, fetcher=get,
+                              opener=self.opener, check_disk=False)
+        self.assertFalse((self.root / "installed.json").exists())
+
     def test_quota_rejects_before_transfer(self):
         with self.assertRaises(InstallError):
             self.install(max_total_bytes=1)

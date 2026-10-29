@@ -93,6 +93,10 @@ def install_resources(*, root=None, observer=None, fetcher=None, opener=None,
     but cannot create the success marker.
     """
     root = private_root() if root is None else Path(root)
+    # Never place downloaded game content in the source repository.
+    target = root.expanduser().resolve()
+    if any((ancestor / ".git").exists() for ancestor in (target, *target.parents)):
+        raise InstallError("禁止將官方遊戲資源安裝至 Git 工作樹")
     if type(max_total_bytes) is not int or not 0 < max_total_bytes <= 256*1024**3:
         raise InstallError("安裝大小配額不合法")
     if type(max_files) is not int or not 0 < max_files <= 200000:
@@ -104,7 +108,8 @@ def install_resources(*, root=None, observer=None, fetcher=None, opener=None,
             fetcher=lambda url: fetch_public_bytes(url, timeout=timeout))
     if fetcher is None:
         fetcher = lambda url, *, limit: fetch_public_bytes(url, limit=limit, timeout=timeout)
-    catalog = fetch_parsed_catalog(observer(), fetcher=fetcher)
+    first_versions = observer()
+    catalog = fetch_parsed_catalog(first_versions, fetcher=fetcher)
     if len(catalog.manifest_bytes) != 2:
         raise InstallError("官方 Manifest 並未完整取得")
     specs = build_bundle_specs(catalog)
@@ -124,6 +129,20 @@ def install_resources(*, root=None, observer=None, fetcher=None, opener=None,
             downloaded += 1
         if progress is not None:
             progress(i, len(specs), downloaded)
+    # Guard against official updates during a long installation. A freshly
+    # observed version AND both current CRC texts must match the originals.
+    # Otherwise do NOT publish a "ready" marker for mixed-version resources.
+    latest = observer()
+    if (latest.exe_version != first_versions.exe_version or
+            latest.data_version != first_versions.data_version or
+            latest.package_versions != first_versions.package_versions):
+        raise InstallError("下載期間官方版本已更新；請重新啟動安裝")
+    for receipt in catalog.transport.manifests:
+        remote_hash = fetcher(
+            package_url(first_versions.data_version, receipt.package, "hash"), limit=8)
+        if (not isinstance(remote_hash, bytes) or
+                remote_hash.decode("ascii", "ignore").lower() != receipt.crc32_le):
+            raise InstallError("下載期間官方 Manifest 已變更；請重新啟動安裝")
     # Detect races or corruption before publishing a completed install.
     if any(not is_verified(spec, root) for spec in specs):
         raise InstallError("安裝後複查 Bundle 失敗")
