@@ -1,241 +1,235 @@
-"""安裝 LaLa 啟動所需官方 YooAsset Manifest 索引；未完成不得進入主介面。
+"""Mandatory official resource install gate before launching LaLa.
 
-只處理兩份經官方公開 HTTPS 來源驗證的 Manifest 索引，不任意下載全量
-Unity Bundle 或修改使用者遊戲目錄。離線 UI 啟動就緒 != 正式服登入就緒。
+Fresh CDN versions + both CRC-verified YooAsset indexes -> all Bundle records
+-> cache reuse or verified downloads -> atomic receipt. No game server packets.
 """
 import argparse
-from hashlib import sha256
+from dataclasses import asdict, dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import sys
 import tempfile
-import zlib
 
-from .manifest_transport import verify_manifest_transport, combine_manifest_receipts, MAX_MANIFEST_BYTES
-from .official_versions import (
-    OfficialVersionError, ObservedVersions, PACKAGES, fetch_public_bytes,
-    observe_official_versions, package_url,
-)
-from .yooasset_index import parse_manifest
+from .bundle_install import InstallError, build_bundle_specs, download_verified, is_verified
+from .manifest_transport import MAX_MANIFEST_BYTES, verify_manifest_transport, combine_manifest_receipts
+from .official_versions import (OfficialVersionError, ObservedVersions, PACKAGES,
+                                observe_official_versions, fetch_public_bytes, package_url)
+from .yooasset_index import ParsedCatalog, fetch_parsed_catalog, parse_manifest
 
-
-INSTALL_SCHEMA = 1
-INDEX_FILES = {"DataPackage": "DataPackage.bytes", "MainPackage": "MainPackage.bytes"}
+MAX_DOWNLOAD_BYTES = 32 * 1024**3
+MAX_FILES = 100000
 
 
-def default_resource_root() -> Path:
-    """所有內容只放在本機私有資料區，不覆蓋原遊戲、GitHub 專案或系統 Python。"""
-    local = os.environ.get("LOCALAPPDATA")
-    if os.name == "nt" and local:
-        return Path(local) / "WLRe-LaLa" / "official_sync" / "indexes"
-    return Path.home() / ".local" / "share" / "WLRe-LaLa" / "official_sync" / "indexes"
+def private_root():
+    # Keep copyrighted raw resources out of the Git tree / game installation.
+    base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
+    return (Path(base) if base else Path.home() / ".local" / "share") / "LaLa" / "official_resources"
 
 
-def _crc32_le(data: bytes) -> str:
-    return (zlib.crc32(data) & 0xffffffff).to_bytes(4, "little").hex()
-
-
-def _atomic_json(path: Path, data: dict) -> None:
-    """檔案先同步到磁碟再置換；中斷時舊安裝標記保持不變。"""
-    pending = None
+def _atomic(path, content):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if any(p.is_symlink() for p in (path, *path.parents)):
+        raise InstallError("資源快取路徑包含符號連結")
+    temp = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
-                                         dir=path.parent, prefix=".index-receipt-",
-                                         delete=False) as writer:
-            pending = Path(writer.name)
-            json.dump(data, writer, ensure_ascii=False, sort_keys=True)
-            writer.write("\n")
-            writer.flush()
-            os.fsync(writer.fileno())
-        os.replace(pending, path)
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".lala_",
+                                         suffix=".partial", delete=False) as out:
+            temp = Path(out.name)
+            out.write(content)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(temp, path)
     finally:
-        if pending is not None:
-            pending.unlink(missing_ok=True)
+        if temp is not None:
+            temp.unlink(missing_ok=True)
 
 
-def _validate_existing(destination: Path, receipt: dict, data: dict[str, bytes]) -> bool:
-    if destination.is_symlink():
-        raise OfficialVersionError("本機官方索引快取路徑是符號連結，拒絕使用")
-    if not destination.exists():
-        return False
-    if not destination.is_dir():
-        raise OfficialVersionError("本機官方索引安裝位置不是目錄")
-    try:
-        marker = destination / "installed.json"
-        if marker.is_symlink() or json.loads(marker.read_text("utf-8")) != receipt:
-            raise OfficialVersionError("既有索引安裝收據與官方內容不符")
-        for name in PACKAGES:
-            file = destination / INDEX_FILES[name]
-            entry = receipt["manifests"][name]
-            if file.is_symlink() or not file.is_file() or file.stat().st_size != entry["size"]:
-                raise OfficialVersionError("既有索引檔案遺失或大小不符")
-            # Always re-verify local bytes, even when a receipt exists.
-            local_bytes = file.read_bytes()
-            if (sha256(local_bytes).hexdigest() != entry["sha256"] or
-                    _crc32_le(local_bytes) != entry["crc32_le"] or
-                    local_bytes != data[name]):
-                raise OfficialVersionError("既有索引檔案與官方資料不相符")
-        return True
-    except (OSError, ValueError, UnicodeError) as exc:
-        raise OfficialVersionError("既有索引安裝快取無法驗證，拒絕開啟主程式") from exc
+def _manifest_path(root, package, revision):
+    from .official_versions import parse_package_revision
+    if package not in PACKAGES or not isinstance(revision, str):
+        raise InstallError("未知官方 Package")
+    parse_package_revision(revision.encode("ascii"))
+    return Path(root) / "manifests" / package / revision / (package + ".bytes")
 
 
-def install_index(*, observation: ObservedVersions, fetcher=None,
-                  root: Path | str | None = None, verify_latest=None) -> dict:
-    """先完整下載／解析兩包，再原子安裝版本化快取；不發遊戲封包。
+@dataclass(frozen=True)
+class InstallResult:
+    catalog_key: str
+    data_version: str
+    files_total: int
+    files_downloaded: int
+    files_reused: int
+    total_size_bytes: int
+    resources_installed: bool = True
+    can_login: bool = False
 
-    verify_latest 為可選的再次觀察來源；正式啟動應使用此機制，
-    以免檢查過程中官方版本更新而安裝過期索引。
-    """
-    if not isinstance(observation, ObservedVersions):
-        raise OfficialVersionError("必須先驗證官方版本")
-    fetcher = fetch_public_bytes if fetcher is None else fetcher
-    data: dict[str, bytes] = {}
-    receipts, indexes = [], []
-    for name in PACKAGES:
-        try:
-            official_crc = fetcher(package_url(observation.data_version, name, "hash"),
-                                   limit=8)
-            blob = fetcher(package_url(observation.data_version, name, "bytes"),
-                           limit=MAX_MANIFEST_BYTES)
-            receipt = verify_manifest_transport(observation, name, official_crc, blob)
-            index = parse_manifest(blob, package=name, revision=receipt.package_revision)
-        except OfficialVersionError:
-            raise
-        except (OSError, TypeError, ValueError) as exc:
-            raise OfficialVersionError("官方索引下載／解析未完成，禁止開啟主程式") from exc
-        data[name] = blob
-        receipts.append(receipt)
-        indexes.append(index)
 
-    pair = combine_manifest_receipts(observation, tuple(receipts))
-    manifests = {
-        index.package: {
-            "revision": index.revision,
-            "size": receipt.size,
-            "sha256": receipt.sha256_hex,
-            "crc32_le": receipt.crc32_le,
-            "asset_count": len(index.assets),
-            "bundle_count": len(index.bundles),
-        }
-        for index, receipt in zip(indexes, receipts)
-    }
-    marker = {
-        "schema": INSTALL_SCHEMA,
-        "catalog_key": pair.catalog_key,
-        "exe_version": observation.exe_version,
-        "data_version": observation.data_version,
-        "package_versions": dict(observation.package_versions),
-        "manifests": manifests,
-        "index_installed": True,
-        "gameplay_schema_validated": False,
-        "gameplay_protocol_verified": False,
-        "bundles_installed": False,
-    }
-
-    # Do not create an install marker when the CDN updates mid-run.
-    if verify_latest is not None:
-        newest = verify_latest()
-        if (not isinstance(newest, ObservedVersions) or
-                newest.exe_version != observation.exe_version or
-                newest.data_version != observation.data_version or
-                newest.package_versions != observation.package_versions):
-            raise OfficialVersionError("官方資源版本在自檢期間變動；本次安裝取消")
-
-    base = default_resource_root() if root is None else Path(root)
-    if base.is_symlink():
-        raise OfficialVersionError("索引資料根目錄不可為符號連結")
-    base.mkdir(parents=True, exist_ok=True)
-    destination = base / pair.catalog_key
-    existing = _validate_existing(destination, marker, data)
-    if not existing:
-        pending = Path(tempfile.mkdtemp(prefix=".install-", dir=base))
-        try:
-            for name in PACKAGES:
-                path = pending / INDEX_FILES[name]
-                with path.open("xb") as writer:
-                    writer.write(data[name])
-                    writer.flush()
-                    os.fsync(writer.fileno())
-            _atomic_json(pending / "installed.json", marker)
-            # Only publish all-or-nothing after both manifests + receipt exist.
-            if destination.exists() or destination.is_symlink():
-                # Another process finished concurrently: validate, never overwrite.
-                _validate_existing(destination, marker, data)
-                existing = True
-            else:
-                try:
-                    os.rename(pending, destination)
-                except OSError:
-                    if not _validate_existing(destination, marker, data):
-                        raise
-                    existing = True
-            if not _validate_existing(destination, marker, data):
-                raise OfficialVersionError("原子安裝後校驗失敗")
-        finally:
-            if pending.exists():
-                shutil.rmtree(pending)
-
-    # This receipt is a pointer to a verified local index, not permission to login.
-    _atomic_json(base / "current.json", {
-        "schema": INSTALL_SCHEMA,
-        "catalog_key": pair.catalog_key,
-        "data_version": observation.data_version,
-    })
+def _marker(catalog, specs):
     return {
-        "status": "index_installed",
-        "index_installed": True,
-        "reused_verified_cache": existing,
-        "catalog_key": pair.catalog_key,
-        "exe_version": observation.exe_version,
-        "data_version": observation.data_version,
-        "manifests": manifests,
-        "all_required_bundles_installed": False,
-        "gameplay_schema_validated": False,
-        "gameplay_protocol_verified": False,
-        "can_open_ui": True,
-        "can_login": False,
+        "schema": 1, "catalog_key": catalog.transport.catalog_key,
+        "exe_version": catalog.transport.exe_version,
+        "data_version": catalog.transport.data_version,
+        "packages": {
+            r.package: {
+                "revision": r.package_revision, "sha256": r.sha256_hex,
+                "crc32_le": r.crc32_le, "size": r.size,
+            } for r in catalog.transport.manifests
+        },
+        "bundle_count": len(specs), "bundle_bytes": sum(s.size for s in specs),
+        "resources_installed": True, "can_login": False, "protocol_compatible": False,
     }
 
 
-def bootstrap(*, root=None, fetcher=None, timeout=3.0,
-              observer=None, recheck=None) -> dict:
-    if not 0 < timeout <= 60:
-        raise OfficialVersionError("官方資源查詢逾時設定無效")
-    if fetcher is None:
-        fetcher = lambda url, *, limit=16384: fetch_public_bytes(
-            url, limit=limit, timeout=timeout)
+def install_resources(*, root=None, observer=None, fetcher=None, opener=None,
+                      timeout=20, max_total_bytes=MAX_DOWNLOAD_BYTES,
+                      max_files=MAX_FILES, progress=None, check_disk=True):
+    """Install all manifest-listed files, not just an unreviewed 'minimum' subset.
+
+    An interrupted install leaves verified downloaded files reusable next time,
+    but cannot create the success marker.
+    """
+    root = private_root() if root is None else Path(root)
+    if type(max_total_bytes) is not int or not 0 < max_total_bytes <= 256*1024**3:
+        raise InstallError("安裝大小配額不合法")
+    if type(max_files) is not int or not 0 < max_files <= 200000:
+        raise InstallError("安裝檔案數量配額不合法")
+    if not isinstance(timeout, (float, int)) or not 0 < timeout <= 60:
+        raise InstallError("官方網路逾時設定不合法")
     if observer is None:
-        observer = lambda: observe_official_versions(fetcher=fetcher)
-    if recheck is None:
-        recheck = observer
-    observation = observer()
-    return install_index(observation=observation, fetcher=fetcher,
-                         root=root, verify_latest=recheck)
+        observer = lambda: observe_official_versions(
+            fetcher=lambda url: fetch_public_bytes(url, timeout=timeout))
+    if fetcher is None:
+        fetcher = lambda url, *, limit: fetch_public_bytes(url, limit=limit, timeout=timeout)
+    catalog = fetch_parsed_catalog(observer(), fetcher=fetcher)
+    if len(catalog.manifest_bytes) != 2:
+        raise InstallError("官方 Manifest 並未完整取得")
+    specs = build_bundle_specs(catalog)
+    if len(specs) > max_files or sum(s.size for s in specs) > max_total_bytes:
+        raise InstallError("官方資源超出本次下載安全配額；未開啟主程式")
+    missing = [spec for spec in specs if not is_verified(spec, root)]
+    required = sum(s.size for s in missing)
+    if check_disk and required:
+        root.mkdir(parents=True, exist_ok=True)
+        if shutil.disk_usage(root).free < required + 512 * 1024**2:
+            raise InstallError("硬碟可用空間不足，未開始安裝")
+    downloaded = 0
+    missing_ids = {(s.package, s.revision, s.name) for s in missing}
+    for i, spec in enumerate(specs, start=1):
+        if (spec.package, spec.revision, spec.name) in missing_ids:
+            download_verified(spec, root, opener=opener, timeout=timeout)
+            downloaded += 1
+        if progress is not None:
+            progress(i, len(specs), downloaded)
+    # Detect races or corruption before publishing a completed install.
+    if any(not is_verified(spec, root) for spec in specs):
+        raise InstallError("安裝後複查 Bundle 失敗")
+    for blob, receipt in zip(catalog.manifest_bytes, catalog.transport.manifests):
+        if (hashlib.sha256(blob).hexdigest() != receipt.sha256_hex or
+                len(blob) != receipt.size):
+            raise InstallError("Manifest 下載期間內容改變")
+        _atomic(_manifest_path(root, receipt.package, receipt.package_revision), blob)
+    marker = json.dumps(_marker(catalog, specs), sort_keys=True, ensure_ascii=True).encode()
+    if len(marker) > 4096:
+        raise InstallError("資源安裝清單過大")
+    _atomic(root / "installed.json", marker)
+    return InstallResult(catalog.transport.catalog_key, catalog.transport.data_version,
+                         len(specs), downloaded, len(specs)-downloaded, sum(s.size for s in specs))
 
 
-def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="LaLa 啟動前官方索引校驗／原子安裝")
-    parser.add_argument("--online", action="store_true",
-                        help="明確允許只讀官方 HTTPS 資源查詢與 Manifest 下載")
-    parser.add_argument("--timeout", type=float, default=3.0)
+def verify_installed(*, root=None, expected_catalog_key=None):
+    """Offline verification gate for direct pythonw / python -m lala_desktop."""
+    root = private_root() if root is None else Path(root)
+    receipt = root / "installed.json"
+    try:
+        if receipt.is_symlink() or receipt.stat().st_size > 4096:
+            raise InstallError("安裝憑證無效")
+        marker = json.loads(receipt.read_text(encoding="ascii"))
+        if (type(marker) is not dict or marker.get("schema") != 1 or
+                marker.get("resources_installed") is not True or
+                marker.get("can_login") is not False or
+                marker.get("protocol_compatible") is not False or
+                not isinstance(marker.get("catalog_key"), str) or
+                len(marker["catalog_key"]) != 64 or
+                type(marker.get("packages")) is not dict or
+                set(marker["packages"]) != set(PACKAGES)):
+            raise InstallError("安裝憑證內容無效")
+        if expected_catalog_key is not None and marker["catalog_key"] != expected_catalog_key:
+            raise InstallError("本次官方版本與快取版本不符")
+        versions = ObservedVersions(
+            marker["exe_version"], marker["data_version"],
+            tuple((p, marker["packages"][p]["revision"]) for p in PACKAGES), "cached")
+        receipts, indexes = [], []
+        for package in PACKAGES:
+            package_url(versions.data_version, package, "bytes")
+            info = marker["packages"][package]
+            if type(info) is not dict or set(info) != {"revision", "sha256", "crc32_le", "size"}:
+                raise InstallError("Manifest 安裝憑證無效")
+            manifest = _manifest_path(root, package, versions.package_version(package))
+            if manifest.is_symlink() or not 0 < manifest.stat().st_size <= MAX_MANIFEST_BYTES:
+                raise InstallError("Manifest 快取缺失或超限")
+            blob = manifest.read_bytes()
+            if type(info["crc32_le"]) is not str:
+                raise InstallError("Manifest CRC 不合法")
+            result = verify_manifest_transport(
+                versions, package, info["crc32_le"].encode("ascii"), blob)
+            if result.sha256_hex != info["sha256"] or result.size != info["size"]:
+                raise InstallError("Manifest 快取與紀錄不一致")
+            receipts.append(result)
+            indexes.append(parse_manifest(
+                blob, package=package, revision=result.package_revision))
+        pair = combine_manifest_receipts(versions, tuple(receipts))
+        catalog = ParsedCatalog(pair, tuple(indexes))
+        specs = build_bundle_specs(catalog)
+        if (pair.catalog_key != marker["catalog_key"] or
+                type(marker.get("bundle_count")) is not int or
+                marker["bundle_count"] != len(specs) or
+                type(marker.get("bundle_bytes")) is not int or
+                marker["bundle_bytes"] != sum(s.size for s in specs)):
+            raise InstallError("安裝清單版本或數量不一致")
+        if any(not is_verified(spec, root) for spec in specs):
+            raise InstallError("Bundle 快取遺失或校驗失敗")
+        return marker
+    except (OSError, TypeError, KeyError, ValueError, UnicodeError, AttributeError) as exc:
+        raise InstallError("官方資源尚未完整安裝或檔案損毀，請重新啟動 BAT") from exc
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="LaLa 入門前官方資源索引、下載安裝強制檢查")
+    parser.add_argument("--online", action="store_true")
+    parser.add_argument("--install", action="store_true")
+    parser.add_argument("--timeout", type=float, default=20)
+    parser.add_argument("--max-gib", type=int, default=32)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    if not args.online:
-        parser.error("啟動前安裝必須明確加入 --online")
+    if not args.online or not args.install:
+        parser.error("需同時指定 --online --install")
+    if not 1 <= args.max_gib <= 256:
+        parser.error("--max-gib 需介於 1～256")
+    last = [-1]
+    def show_progress(done, total, downloaded):
+        percent = done * 100 // total
+        if percent // 5 != last[0] // 5 or done == total:
+            last[0] = percent
+            print(f"[LaLa] 官方資源：{percent}%（{done}/{total}；新下載 {downloaded}）",
+                  file=sys.stderr, flush=True)
     try:
-        result = bootstrap(timeout=args.timeout)
-    except (OfficialVersionError, OSError) as exc:
-        # Never print remote payload, user credentials or local absolute paths.
-        parser.exit(1, "LaLa 官方索引安裝失敗：" + (
-            str(exc) if isinstance(exc, OfficialVersionError)
-            else "本機快取存取失敗") + "\n")
+        result = install_resources(
+            timeout=args.timeout, max_total_bytes=args.max_gib * 1024**3,
+            progress=show_progress)
+        verify_installed(expected_catalog_key=result.catalog_key)
+    except (InstallError, OfficialVersionError, OSError) as error:
+        print("[LaLa] 官方資源安裝失敗：" + str(error), file=sys.stderr)
+        return 1
     if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
     else:
-        print("官方索引安裝完成：", result["catalog_key"])
-        print("遊戲資料 Bundle 與正式服登入：尚未完成驗證")
+        print("[LaLa] 兩包 Manifest 已解析；所有 Bundle 安裝與複查完成。")
+        print(f"[LaLa] 共 {result.files_total} 檔，本次下載 {result.files_downloaded}。")
+        print("[LaLa] 遊戲登入協定尚未驗證；僅開放 LaLa 介面。")
     return 0
 
 
