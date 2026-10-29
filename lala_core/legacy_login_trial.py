@@ -20,6 +20,9 @@ from .wire import WireDecodeError
 from .legacy_world import parse_legacy_world_player
 
 
+MAX_TRIAL_PACKETS = 512  # bounded evidence collection; never silently lift this cap
+
+
 @dataclass(frozen=True, slots=True)
 class LegacyTrialResult:
     verification_accepted: bool
@@ -94,8 +97,10 @@ class LegacyLoginTrial:
         except OSError as error:
             raise LoginError("無法連接舊版分流位址；請檢查分流與網路") from None
 
-    def _wait_packets(self, connection, decoder, deadline):
+    def _wait_packets(self, connection, decoder, deadline, *, phase):
         packets_seen = 0
+        saw_world_player = False
+        saw_initial_data_complete = False
         while not self._stopped.is_set() and self._clock() < deadline:
             try:
                 data = connection.recv(8192)
@@ -111,9 +116,23 @@ class LegacyLoginTrial:
                 raise LoginError("收到不同於舊版的封包格式；停止登入試驗") from None
             for packet in packets:
                 packets_seen += 1
-                if packets_seen > 512:
-                    raise LoginError("伺服器封包數量超出登入試驗上限")
-                if (packet.main, packet.sub) == (1, 23):
+                key = (packet.main, packet.sub)
+                saw_world_player |= key == (3, 1)
+                saw_initial_data_complete |= key == (1, 11)
+                if packets_seen > MAX_TRIAL_PACKETS:
+                    if phase == "選角":
+                        # Only report whitelisted packet types, never payloads,
+                        # role details, account data, or arbitrary server text.
+                        world = "已收到" if saw_world_player else "未收到"
+                        ready = "已收到" if saw_initial_data_complete else "未收到"
+                        raise LoginError(
+                            f"舊版選角試驗超過 {MAX_TRIAL_PACKETS} 個封包；"
+                            f"S3-1：{world}、S1-11：{ready}。"
+                            "角色同步未完成，已停止試驗。")
+                    raise LoginError(
+                        f"舊版{phase}試驗超過 {MAX_TRIAL_PACKETS} 個封包；"
+                        "已停止試驗，不能判定登入成功。")
+                if key == (1, 23):
                     try:
                         connection.sendall(_small_frame(63, 5))
                     except OSError:
@@ -127,7 +146,8 @@ class LegacyLoginTrial:
     def _reply_phase(self, connection, *, kind, deadline, need_roles=False):
         decoder = decoder_for_legacy_fixture()
         accepted, slots = False, ()
-        for packet in self._wait_packets(connection, decoder, deadline):
+        phase = "帳號驗證" if kind == 0 else "正式登入"
+        for packet in self._wait_packets(connection, decoder, deadline, phase=phase):
             key = (packet.main, packet.sub)
             if key == (63, 7):
                 try:
@@ -235,7 +255,8 @@ class LegacyLoginTrial:
             player = None
             complete = False
             for packet in self._wait_packets(
-                    connection, decoder, self._clock() + self._timeout):
+                    connection, decoder, self._clock() + self._timeout,
+                    phase="選角"):
                 if (packet.main, packet.sub) == (3, 1):
                     try:
                         candidate = parse_legacy_world_player(packet)
