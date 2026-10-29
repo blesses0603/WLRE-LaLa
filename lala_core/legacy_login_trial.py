@@ -59,6 +59,7 @@ class LegacyLoginTrial:
         self._socket = None
         self._verified_slots = ()
         self._endpoint = None
+        self._attempted = False
 
     def close(self):
         self._stopped.set()
@@ -151,12 +152,17 @@ class LegacyLoginTrial:
         if type(line_id) is not int or line_id not in LINE_SNAPSHOT:
             raise LoginError("舊版伺服器清單中沒有這個分流")
         endpoint = LINE_SNAPSHOT[line_id][1:]
-        self.close()
-        self._stopped = Event()
+        with self._lock:
+            if self._attempted or self._stopped.is_set():
+                raise LoginError("此登入試驗已使用或取消；請重新開始")
+            self._attempted = True
         formal = None
         try:
             verify = self._dial(endpoint)
             with self._lock:
+                if self._stopped.is_set():
+                    verify.close()
+                    raise LoginError("登入已取消；不送出任何封包")
                 self._socket = verify
             try:
                 if self._stopped.is_set():
@@ -174,7 +180,12 @@ class LegacyLoginTrial:
                 raise LoginError("登入已取消")
             formal = self._dial(endpoint)
             with self._lock:
+                if self._stopped.is_set():
+                    formal.close()
+                    raise LoginError("登入已取消；不發送正式登入封包")
                 self._socket = formal
+            if self._stopped.is_set():
+                raise LoginError("登入已取消；不發送正式登入封包")
             formal.sendall(build_legacy_request(account, password, kind=2))
             slots = self._reply_phase(
                 formal, kind=2, deadline=self._clock() + self._timeout,
