@@ -1,5 +1,6 @@
-import json
-import os
+"""Isolated synthetic Bundle installation; never contacts the actual game CDN."""
+import hashlib
+import io
 import struct
 import tempfile
 import unittest
@@ -7,109 +8,126 @@ from pathlib import Path
 from unittest.mock import patch
 import zlib
 
+from lala_core.bundle_install import InstallError, BundleSpec
 from lala_core.official_versions import ObservedVersions, OfficialVersionError
-from lala_core.resource_bootstrap import bootstrap, install_index
-REVISION = "1286_2026_10_29_13_42_37_94"
+from lala_core.resource_bootstrap import install_resources, verify_installed, main
+
+REV1 = "1286_2026_10_29_13_42_37_94"
+REV2 = "1284_2026_10_28_19_50_04_11"
+CONTENT = b"LaLa fake downloaded bytes, NOT game content"
 
 
-def _txt(value):
-    encoded = value.encode("utf-8")
-    return struct.pack("<H", len(encoded)) + encoded
+def t(s):
+    b = s.encode()
+    return struct.pack("<H", len(b)) + b
 
 
-def pack_manifest(package="DataPackage", revision=REVISION):
-    body = struct.pack("<I", 0x00594F4F) + _txt("2.2.5")
-    body += struct.pack("<BBBii", 1, 0, 1, 1, 2)
-    body += (_txt("ScriptableBuildPipeline") + _txt(package)
-             + _txt(revision) + _txt(""))
-    body += struct.pack("<i", 1)
-    body += _txt("a") + _txt("Assets/a") + _txt("guid-a")
-    body += struct.pack("<H", 0) + struct.pack("<i", 0)
-    body += struct.pack("<i", 1) + _txt("A") + struct.pack("<I", 99)
-    body += _txt("0123456789abcdef0123456789abcdef") + _txt("12ab34cd")
-    body += struct.pack("<qBHH", 40, 0, 0, 0)
-    return body
+def crc(data):
+    return (zlib.crc32(data) & 0xffffffff).to_bytes(4, "little").hex()
+
+
+def manifest(package, revision):
+    d = struct.pack("<I", 0x00594F4F) + t("2.2.5") + struct.pack("<BBBii", 1, 0, 1, 1, 2)
+    d += t("ScriptableBuildPipeline") + t(package) + t(revision) + t("")
+    d += struct.pack("<i", 1) + t("a") + t("Assets/a") + t("guid-a")
+    d += struct.pack("<Hi", 0, 0) + struct.pack("<i", 1)
+    d += t("fake.bundle") + struct.pack("<I", 0)
+    d += t(hashlib.md5(CONTENT, usedforsecurity=False).hexdigest()) + t(crc(CONTENT))
+    return d + struct.pack("<qBHH", len(CONTENT), 0, 0, 0)
 
 
 def observed():
-    return ObservedVersions(
-        "1.3.0", "1.3.22.1",
-        (("DataPackage", REVISION),
-         ("MainPackage", "1284_2026_10_28_19_50_04_11")),
-        "2026-10-29T09:00:00+00:00",
-    )
+    return ObservedVersions("1.3.0", "1.3.22.1",
+                            (("DataPackage", REV1), ("MainPackage", REV2)), "test")
 
 
-def fake_get(url, *, limit=16384):
-    if "ResourcePath_PC.dat" in url:
-        return b'[{"ExeVer":"1.3.0","DataVer":"1.3.22.1"}]'
-    main = "MainPackage." in url
-    name = "MainPackage" if main else "DataPackage"
-    version = dict(observed().package_versions)[name]
-    if url.endswith(".version"):
-        return version.encode()
-    blob = pack_manifest(package=name, revision=version)
-    if url.endswith(".hash"):
-        return (zlib.crc32(blob) & 0xffffffff).to_bytes(4, "little").hex().encode()
-    return blob
+def get(url, *, limit):
+    p = "MainPackage" if "MainPackage." in url else "DataPackage"
+    body = manifest(p, dict(observed().package_versions)[p])
+    return crc(body).encode() if url.endswith(".hash") else body
 
 
-class StartupInstallTests(unittest.TestCase):
-    def test_first_install_receipt_and_repeat_cache_validation(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            first = bootstrap(root=tmp, fetcher=fake_get)
-            self.assertTrue(first["index_installed"])
-            self.assertFalse(first["all_required_bundles_installed"])
-            self.assertFalse(first["can_login"])
-            self.assertTrue(first["can_open_ui"])
-            version_dir = Path(tmp) / first["catalog_key"]
-            self.assertTrue((version_dir / "DataPackage.bytes").is_file())
-            self.assertTrue((version_dir / "MainPackage.bytes").is_file())
-            self.assertTrue((version_dir / "installed.json").is_file())
-            self.assertEqual(json.loads((Path(tmp) / "current.json").read_text())["catalog_key"],
-                             first["catalog_key"])
-            second = bootstrap(root=tmp, fetcher=fake_get)
-            self.assertTrue(second["reused_verified_cache"])
+class Response(io.BytesIO):
+    status = 200
+    def __init__(self, url, data):
+        super().__init__(data)
+        self.url = url
+        self.headers = {"Content-Length": str(len(data))}
+    def geturl(self):
+        return self.url
 
-    def test_bad_manifest_must_not_publish_or_enter(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            def bad_get(url, *, limit=16384):
-                if "MainPackage." in url and url.endswith(".bytes"):
-                    return b"invalid"
-                return fake_get(url, limit=limit)
-            with self.assertRaises(OfficialVersionError):
-                bootstrap(root=tmp, fetcher=bad_get)
-            self.assertFalse((Path(tmp) / "current.json").exists())
-            self.assertEqual(list(Path(tmp).iterdir()), [])
 
-    def test_mismatched_revision_never_installs(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            revised = ObservedVersions("1.3.0", "1.3.22.1",
-                                       (("DataPackage", REVISION),
-                                        ("MainPackage", REVISION)), "T")
-            with self.assertRaises(OfficialVersionError):
-                install_index(observation=observed(), fetcher=fake_get, root=tmp,
-                              verify_latest=lambda: revised)
-            self.assertFalse((Path(tmp) / "current.json").exists())
+class InstallTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.urls = []
 
-    def test_corrupted_old_cache_blocks_startup_and_preserves_evidence(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            first = bootstrap(root=tmp, fetcher=fake_get)
-            path = Path(tmp) / first["catalog_key"] / "DataPackage.bytes"
-            path.write_bytes(b"tampered")
-            with self.assertRaises(OfficialVersionError):
-                bootstrap(root=tmp, fetcher=fake_get)
-            self.assertEqual(path.read_bytes(), b"tampered")
+    def opener(self, req, timeout):
+        self.urls.append(req.full_url)
+        return Response(req.full_url, CONTENT)
 
-    def test_atomic_publish_only_after_both_manifests_verify(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            calls = []
-            def fetching(url, *, limit=16384):
-                calls.append(url)
-                return fake_get(url, limit=limit)
-            result = bootstrap(root=tmp, fetcher=fetching)
-            # 3 lookup + 4 manifest + 3 recheck, all bounded; no game server.
-            self.assertEqual(len(calls), 10)
-            self.assertEqual(sum(x.endswith(".bytes") for x in calls), 2)
-            self.assertEqual(sum(x.endswith(".hash") for x in calls), 2)
-            self.assertTrue(result["index_installed"])
+    def install(self, **kw):
+        return install_resources(root=self.root, observer=observed, fetcher=get,
+                                 opener=self.opener, check_disk=False, **kw)
+
+    def test_first_install_reuse_and_offline_entry_gate(self):
+        a = self.install()
+        self.assertEqual((a.files_total, a.files_downloaded), (2, 2))
+        self.assertFalse(a.can_login)
+        self.assertEqual(len(self.urls), 2)
+        self.assertTrue(verify_installed(root=self.root, expected_catalog_key=a.catalog_key)["resources_installed"])
+        b = self.install()
+        self.assertEqual((b.files_downloaded, b.files_reused), (0, 2))
+        self.assertEqual(len(self.urls), 2)
+
+    def test_corrupt_bundle_blocks_and_redownloads_only_bad_file(self):
+        self.install()
+        bundles = list(self.root.rglob("*.bundle"))
+        self.assertEqual(len(bundles), 2)
+        bundles[0].write_bytes(b"broken")
+        with self.assertRaises(InstallError):
+            verify_installed(root=self.root)
+        repaired = self.install()
+        self.assertEqual(repaired.files_downloaded, 1)
+        verify_installed(root=self.root)
+
+    def test_download_integrity_failure_never_marks_success(self):
+        def wrong(req, timeout):
+            return Response(req.full_url, CONTENT + b"bad")
+        with patch.object(self, "opener", wrong), self.assertRaises(InstallError):
+            self.install()
+        self.assertFalse((self.root / "installed.json").exists())
+        self.assertEqual(list(self.root.rglob("*.partial")), [])
+
+    def test_bad_crc_blocks_before_any_download(self):
+        def broken(url, *, limit):
+            return b"00000000" if url.endswith(".hash") else get(url, limit=limit)
+        with self.assertRaises(OfficialVersionError):
+            install_resources(root=self.root, observer=observed, fetcher=broken,
+                              opener=self.opener, check_disk=False)
+        self.assertEqual(self.urls, [])
+        self.assertFalse((self.root / "installed.json").exists())
+
+    def test_quota_rejects_before_transfer(self):
+        with self.assertRaises(InstallError):
+            self.install(max_total_bytes=1)
+        self.assertEqual(self.urls, [])
+
+    def test_tampered_receipt_cannot_open(self):
+        self.install()
+        (self.root / "installed.json").write_text('{"resources_installed":true}')
+        with self.assertRaises(InstallError):
+            verify_installed(root=self.root)
+
+    def test_reject_path_traversal(self):
+        for value in ("../outside.bundle", "folder/fake.bundle", "image.exe"):
+            with self.subTest(value=value), self.assertRaises(InstallError):
+                BundleSpec("1.3.22.1", "DataPackage", REV1, value, 10, "0"*32, "0"*8)
+
+    def test_cli_flags_required(self):
+        with patch("lala_core.resource_bootstrap.install_resources") as installer:
+            with self.assertRaises(SystemExit):
+                main([])
+            installer.assert_not_called()
