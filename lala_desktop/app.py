@@ -73,7 +73,7 @@ class LaLaDesktop(tk.Tk):
             "not_checked": "未執行官方資源自檢",
             "failed": "官方資源自檢未通過，仍可使用離線功能",
             "transport_checked": "官方 Manifest 傳輸自檢通過，正式服協定尚未驗證",
-            "installed": "官方資源索引與全部 Bundle 已安裝驗證，正式服協定尚未驗證",
+            "installed": "官方資源索引與 LaLa 所需 Bundle 已安裝驗證，正式服協定尚未驗證",
         }[self._startup_resource_status]
         subtitle = self.text(header, startup_line + "  •  正式伺服器尚未接入",
                              size=10, color=t.MUTED)
@@ -87,7 +87,7 @@ class LaLaDesktop(tk.Tk):
             else "● 尚未自檢／離線"))
         self.text(actions, status_short, color=t.WARN, size=10).pack(side="left", padx=11)
         self._button(actions, "登入／選角", lambda: self.open_feature("accounts")).pack(side="left", padx=3)
-        self._button(actions, "中斷連線", lambda: self._offline_notice(), width=10).pack(side="left", padx=3)
+        self._button(actions, "中斷連線", self._disconnect_account, width=10).pack(side="left", padx=3)
         # 系統白色標題列移除後，保留最小化與關閉的操作入口（不提供最大化）。
         self._minimize_button = self._button(actions, "─", self._chrome.minimize, width=3)
         self._minimize_button.pack(side="left", padx=(12, 3))
@@ -120,6 +120,16 @@ class LaLaDesktop(tk.Tk):
 
     def _offline_notice(self):
         self._append_event("目前沒有建立連線，沒有任何中斷動作。")
+
+    def _disconnect_account(self):
+        window = self._feature_windows.get("accounts")
+        if window is not None and window.winfo_exists():
+            callback = getattr(window, "_lala_login_disconnect", None)
+            if callback is not None:
+                callback()
+                self._append_event("登入嘗試與會話已中斷；未傳送任何遊戲操作指令。")
+                return
+        self._offline_notice()
 
     def _build_left(self, parent):
         nav_panel = self._panel(parent, bg=t.SURFACE, inset=4)
@@ -331,7 +341,8 @@ class LaLaDesktop(tk.Tk):
         feature = BY_KEY[key]
         window = tk.Toplevel(self)
         self._feature_windows[key] = window
-        window.title(f"LaLa ｜{feature.title}（UI 預覽）")
+        window.title(f"LaLa ｜{feature.title}" + (
+            "（協定驗證中）" if key == "accounts" else "（UI 預覽）"))
         apply_fixed_window(window, kind="dialog", parent=self)
         chrome = install_borderless(window)
         window.configure(bg=t.BG)

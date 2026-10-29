@@ -47,6 +47,21 @@ class LoginWindowTests(unittest.TestCase):
             finally:
                 root.destroy()
 
+    def test_main_header_disconnect_uses_login_controller(self):
+        from lala_desktop.app import LaLaDesktop
+        root = LaLaDesktop()
+        try:
+            root.open_feature("accounts")
+            root.update()
+            dialog = root._feature_windows["accounts"]
+            coordinator = dialog._lala_login_coordinator
+            buttons = [w for w in root.winfo_children()]
+            root._disconnect_account()
+            self.assertEqual(coordinator.view().phase, "disconnected")
+            self.assertFalse(coordinator.session.view().connected)
+        finally:
+            root.destroy()
+
     def test_login_and_disconnect_use_no_network_while_offline(self):
         from lala_desktop.app import LaLaDesktop
         from lala_desktop import login_tools

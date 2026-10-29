@@ -18,6 +18,7 @@ from . import theme as t
 def build_login_tool(parent, *, font_name, button_factory, adapter=None):
     coordinator = LoginCoordinator(adapter=adapter)
     parent._lala_login_coordinator = coordinator
+    parent.winfo_toplevel()._lala_login_coordinator = coordinator
     status = tk.StringVar(master=parent, value="尚未登入。正式服身分及協定尚未驗證。")
     choices = {
         f"{name}（{line_id}）": line_id
@@ -161,6 +162,8 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
         roles.set("")
         role_picker.configure(values=(), state="disabled")
         status.set("已中斷；清除登入會話與角色狀態。")
+
+    parent.winfo_toplevel()._lala_login_disconnect = disconnect
 
     def choose_role():
         try:
