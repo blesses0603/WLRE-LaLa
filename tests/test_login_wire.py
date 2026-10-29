@@ -6,6 +6,7 @@ from lala_core.login import LoginError
 from lala_core.login_wire import (
     OLD_TX_XOR, build_legacy_request, decode_legacy_reply,
     decoder_for_legacy_fixture, parse_legacy_role_slots,
+    build_legacy_world_init_acks,
 )
 from lala_core.wire import ObservedPacket, WireDecodeError
 
@@ -57,3 +58,13 @@ class LegacyLoginWireTests(unittest.TestCase):
         self.assertTrue(decode_legacy_reply(packets[0], expected_kind=2).accepted)
         self.assertFalse(decode_legacy_reply(packets[0], expected_kind=2).verified_current_server)
         decoder.finish()
+
+    def test_legacy_world_init_ack_matches_old_client_packet_order(self):
+        acknowledgements = build_legacy_world_init_acks()
+        self.assertEqual(len(acknowledgements), 2)
+        for actual, expected in zip(
+                acknowledgements, (b"\xc4\xc6\x02\0\x0c\x01",
+                                   b"\xc4\xc6\x02\0\x03\x02")):
+            plain = bytes(byte ^ OLD_TX_XOR for byte in actual)
+            self.assertEqual(plain, expected)
+            self.assertEqual(int.from_bytes(plain[2:4], "little"), 2)
