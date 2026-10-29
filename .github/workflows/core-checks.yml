@@ -14,3 +14,5 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Syntax check
         run: python -m compileall -q lala_core lala_desktop lala_android
+      - name: Tkinter interface smoke test (Xvfb)
+        run: xvfb-run -a python -m unittest discover -s tests -p 'test_classic_desktop_smoke.py' -v
