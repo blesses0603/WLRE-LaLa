@@ -43,7 +43,7 @@ if not exist "requirements-desktop.txt" goto :requirements_error
 rem Only download on first run or if the exact pinned Pillow dependency is missing.
 "%VENV_PY%" -c "import PIL; from PIL import Image, ImageTk; import tkinter; assert PIL.__version__ == '11.3.0'" >nul 2>&1
 if errorlevel 1 (
-    echo [LaLa] Installing desktop image dependency (internet may be required)...
+    echo [LaLa] Installing desktop image dependency. Internet may be required.
     "%VENV_PY%" -m pip --disable-pip-version-check install -r "requirements-desktop.txt"
     if errorlevel 1 goto :install_error
 )
