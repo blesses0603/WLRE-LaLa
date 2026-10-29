@@ -4,8 +4,8 @@
 
 ## 開發狀態
 
-- Windows（`0.1.0-dev`）：Tkinter 深藍科技風離線 UI、功能導航、搜尋及佔位頁。
-- Android（`0.1.0-dev`）：Kivy 可選介面原型；沒有 APK、前景服務或懸浮窗。
+- Windows（`0.1.0-dev`）：Tkinter 經典 LaLa 首頁（十張資訊卡、圓形功能入口、左下聊天、右側小地圖與事件／戰場分頁），並保留 27 項功能的搜尋與獨立視窗。
+- Android（`0.1.0-dev`）：Kivy 深藍圓角卡片與橫向圓形快捷列原型；沒有 APK、前景服務或懸浮窗。
 - 共用 Core：27 項功能需求註冊表、操作狀態保護骨架、診斷資訊敏感欄位遮罩。
 - 測試：純 Python `unittest` 與 CI 語法檢查。
 - **尚無正式遊戲伺服器連線、登入、下載、戰鬥、自動化、真實帳號資料與角色狀態。**
@@ -41,6 +41,7 @@ Windows UI 不需額外 pip 安裝；目前沒有 EXE 或內建可攜式 Python�
 - `lala_desktop/`：Windows／Tkinter UI
 - `lala_android/`：Kivy 手機 UI 原型
 - `docs/功能清單.md`：舊版功能需求與架構約束
+- `docs/舊版介面承襲.md`：舊版 UI 來源、經典版型、素材使用限制
 - `docs/驗收標準.md`：P0 自動化與實機驗收準則
 - `tests/`：純 Python 離線測試
 - `.github/workflows/core-checks.yml`：GitHub Actions 測試
