@@ -16,6 +16,7 @@ import zlib
 
 from .official_versions import ROOT, OfficialVersionError, package_url
 from .yooasset_index import ParsedCatalog
+from .feature_resources import DEFAULT_SELECTION, FeatureAssetSelection, select_feature_assets
 
 
 MAX_BUNDLE_BYTES = 256 * 1024 * 1024
@@ -64,21 +65,61 @@ class BundleSpec:
         return root / "bundles" / self.package / self.revision / self.md5_hex.lower() / self.name
 
 
-def build_bundle_specs(catalog: ParsedCatalog) -> tuple[BundleSpec, ...]:
-    """Use ALL Bundle records from both official manifests, not guessed subsets."""
+def build_bundle_specs(catalog: ParsedCatalog, *,
+                       selection: FeatureAssetSelection = DEFAULT_SELECTION
+                       ) -> tuple[BundleSpec, ...]:
+    """Download ONLY reviewed LaLa feature assets plus transitive Bundle dependencies.
+
+    Never silently install every Bundle when an exact path is missing. The two
+    official manifests are still both verified; an empty MainPackage selection
+    is valid when the Windows UI is already packaged locally.
+    """
     if (not isinstance(catalog, ParsedCatalog) or
             len(catalog.indexes) != 2 or len(catalog.transport.manifests) != 2):
         raise InstallError("缺少兩包已驗證的官方索引")
+    if (not isinstance(selection, FeatureAssetSelection) or
+            select_feature_assets(features=selection.feature_keys) != selection):
+        raise InstallError("下載功能來源清單未經審核")
+    wanted = set(selection.assets)
     specs = []
+    matched = set()
     for index, receipt in zip(catalog.indexes, catalog.transport.manifests):
         if index.package != receipt.package or index.revision != receipt.package_revision:
             raise InstallError("Manifest 與官方修訂版號不符")
-        for bundle in index.bundles:
+        asset_lookup = {}
+        for asset in index.assets:
+            if asset.path in asset_lookup:
+                raise InstallError("Manifest AssetPath 重複")
+            asset_lookup[asset.path] = asset.bundle_id
+        selected_ids = set()
+        for package, path in wanted:
+            if package != index.package:
+                continue
+            if path not in asset_lookup:
+                # No fuzzy filename matching and no "download all" fallback.
+                raise InstallError(
+                    f"本次官方 {package} 缺少經審核的 LaLa 功能資源，禁止猜測下載"
+                )
+            selected_ids.add(asset_lookup[path])
+            matched.add((package, path))
+        # The native YooAsset dependency list is a bundle-index graph.
+        # Traverse all recursive dependencies, not just the directly
+        # referenced Bundle. Sharing is deduplicated by index.
+        stack = list(selected_ids)
+        while stack:
+            bundle_id = stack.pop()
+            bundle = index.bundles[bundle_id]
+            for dependency in bundle.dependencies:
+                if dependency not in selected_ids:
+                    selected_ids.add(dependency)
+                    stack.append(dependency)
+        for bundle_id in sorted(selected_ids):
+            bundle = index.bundles[bundle_id]
             specs.append(BundleSpec(
                 catalog.transport.data_version, index.package, index.revision,
                 bundle.name, bundle.file_size, bundle.file_hash, bundle.file_crc))
-    if not specs:
-        raise InstallError("官方 Manifest 沒有可安裝 Bundle")
+    if matched != wanted or not specs:
+        raise InstallError("LaLa 必要資源索引未完整比對，拒絕安裝")
     return tuple(specs)
 
 
