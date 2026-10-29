@@ -1,7 +1,8 @@
 """Mandatory official resource install gate before launching LaLa.
 
-Fresh CDN versions + both CRC-verified YooAsset indexes -> all Bundle records
--> cache reuse or verified downloads -> atomic receipt. No game server packets.
+Fresh CDN versions + both verified YooAsset indexes -> reviewed LaLa
+feature AssetPaths and recursive Bundle dependencies -> private verified cache.
+Do not download the entire game; never send game-server packets.
 """
 import argparse
 from dataclasses import asdict, dataclass
@@ -14,6 +15,7 @@ import sys
 import tempfile
 
 from .bundle_install import InstallError, build_bundle_specs, download_verified, is_verified
+from .feature_resources import DEFAULT_SELECTION
 from .manifest_transport import MAX_MANIFEST_BYTES, verify_manifest_transport, combine_manifest_receipts
 from .official_versions import (OfficialVersionError, ObservedVersions, PACKAGES,
                                 observe_official_versions, fetch_public_bytes, package_url)
@@ -64,13 +66,17 @@ class InstallResult:
     files_downloaded: int
     files_reused: int
     total_size_bytes: int
+    selected_asset_count: int = len(DEFAULT_SELECTION.assets)
     resources_installed: bool = True
     can_login: bool = False
 
 
 def _marker(catalog, specs):
     return {
-        "schema": 1, "catalog_key": catalog.transport.catalog_key,
+        "schema": 2, "catalog_key": catalog.transport.catalog_key,
+        "resource_policy_key": DEFAULT_SELECTION.policy_key,
+        "feature_keys": list(DEFAULT_SELECTION.feature_keys),
+        "asset_count": len(DEFAULT_SELECTION.assets),
         "exe_version": catalog.transport.exe_version,
         "data_version": catalog.transport.data_version,
         "packages": {
@@ -87,10 +93,10 @@ def _marker(catalog, specs):
 def install_resources(*, root=None, observer=None, fetcher=None, opener=None,
                       timeout=20, max_total_bytes=MAX_DOWNLOAD_BYTES,
                       max_files=MAX_FILES, progress=None, check_disk=True):
-    """Install all manifest-listed files, not just an unreviewed 'minimum' subset.
+    """Install only exact LaLa feature assets and transitive Bundle dependencies.
 
-    An interrupted install leaves verified downloaded files reusable next time,
-    but cannot create the success marker.
+    An interrupted install leaves verified selected files reusable, but does
+    not authorize entry via a stale or incomplete receipt.
     """
     root = private_root() if root is None else Path(root)
     # Never place downloaded game content in the source repository.
@@ -127,7 +133,8 @@ def install_resources(*, root=None, observer=None, fetcher=None, opener=None,
     # Keep it on interruption to fail closed; a later successful install
     # safely overwrites the staged marker and removes it.
     _atomic(root / "install.pending", json.dumps({
-        "schema": 1, "catalog_key": catalog.transport.catalog_key,
+        "schema": 2, "catalog_key": catalog.transport.catalog_key,
+        "resource_policy_key": DEFAULT_SELECTION.policy_key,
     }, sort_keys=True).encode("ascii"))
     downloaded = 0
     missing_ids = {(s.package, s.revision, s.name) for s in missing}
@@ -181,7 +188,10 @@ def verify_installed(*, root=None, expected_catalog_key=None):
         if receipt.is_symlink() or receipt.stat().st_size > 4096:
             raise InstallError("安裝憑證無效")
         marker = json.loads(receipt.read_text(encoding="ascii"))
-        if (type(marker) is not dict or marker.get("schema") != 1 or
+        if (type(marker) is not dict or marker.get("schema") != 2 or
+                marker.get("resource_policy_key") != DEFAULT_SELECTION.policy_key or
+                marker.get("feature_keys") != list(DEFAULT_SELECTION.feature_keys) or
+                marker.get("asset_count") != len(DEFAULT_SELECTION.assets) or
                 marker.get("resources_installed") is not True or
                 marker.get("can_login") is not False or
                 marker.get("protocol_compatible") is not False or
@@ -260,8 +270,9 @@ def main(argv=None):
     if args.json:
         print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
     else:
-        print("[LaLa] 兩包 Manifest 已解析；所有 Bundle 安裝與複查完成。")
-        print(f"[LaLa] 共 {result.files_total} 檔，本次下載 {result.files_downloaded}。")
+        print("[LaLa] 兩包 Manifest 已解析；LaLa 必要 Bundle 與相依已完成安裝。")
+        print(f"[LaLa] 必要 AssetPath {result.selected_asset_count} 項，"
+              f"Bundle {result.files_total} 檔，本次下載 {result.files_downloaded}。")
         print("[LaLa] 遊戲登入協定尚未驗證；僅開放 LaLa 介面。")
     return 0
 
