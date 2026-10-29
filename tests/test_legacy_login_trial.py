@@ -123,6 +123,53 @@ class LegacyLoginTrialTests(unittest.TestCase):
             a.authenticate(line_id=101, account="u", password="p", consent=True)
         self.assertTrue(sockets[0].closed)
 
+    def test_cancel_while_first_socket_is_connecting_sends_nothing(self):
+        created = []
+        trial = None
+        def dial(endpoint, *, timeout):
+            connection = FakeConnection([frame(63, 7, b"\0\0")])
+            created.append(connection)
+            trial.close()  # cancellation arrives during blocking TCP dial
+            return connection
+        trial = LegacyLoginTrial(connector=dial, timeout=1)
+        with self.assertRaises(LoginError):
+            trial.authenticate(line_id=101, account="fake", password="fake",
+                               consent=True)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0].sent, [])
+        self.assertTrue(created[0].closed)
+
+    def test_cancel_during_formal_dial_never_sends_kind_two(self):
+        created = []
+        trial = None
+        def dial(endpoint, *, timeout):
+            connection = FakeConnection([frame(63, 7, b"\0\0")])
+            created.append(connection)
+            if len(created) == 2:
+                trial.close()  # interrupted before C63-7 kind 2
+            return connection
+        trial = LegacyLoginTrial(connector=dial, timeout=1)
+        with self.assertRaises(LoginError):
+            trial.authenticate(line_id=101, account="fake", password="fake",
+                               consent=True)
+        self.assertEqual(len(created), 2)
+        self.assertEqual(len(created[0].sent), 1)
+        self.assertEqual(created[1].sent, [])
+        self.assertTrue(created[1].closed)
+
+    def test_trial_is_single_use_even_when_accepted(self):
+        trial, sockets, endpoints = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1))],
+        )
+        trial.authenticate(line_id=101, account="fake", password="fake",
+                           consent=True)
+        with self.assertRaises(LoginError):
+            trial.authenticate(line_id=101, account="fake", password="fake",
+                               consent=True)
+        self.assertEqual(len(endpoints), 2)
+        trial.close()
+
     def test_cancel_closes_formal_socket_and_disables_role_selection(self):
         a, sockets, opened = self.setup_adapter(
             [frame(63, 7, b"\0\0")],
