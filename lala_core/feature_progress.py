@@ -18,6 +18,11 @@ class FeatureProgress:
 _LOCAL = {
     "dashboard": "可讀取本機功能狀態",
     "resources": "本機資源 SHA-256 / 長度校驗",
+    "battle": "權威回合的離線技能候選（不發送）",
+    "battle_ai": "手動啟用條件的離線技能候選（不自動出招）",
+    "chat": "唯讀已驗證通道事件紀錄",
+    "guild": "唯讀已驗證公會通道事件紀錄",
+    "settings": "UI 偏好白名單與安全存檔",
     "efficiency": "經驗效率與目標時間計算",
     "crafting": "材料預約與製作數量規劃",
     "inventory": "材料持有量與缺料核對",

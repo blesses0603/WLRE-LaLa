@@ -2,7 +2,6 @@
 from collections import deque
 from dataclasses import dataclass
 from threading import RLock
-from .diagnostics import sanitize_fields
 
 
 @dataclass(frozen=True, slots=True)
