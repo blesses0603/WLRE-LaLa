@@ -20,7 +20,7 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn("where py >nul 2>&1", self.content)
         self.assertIn("call :find_compatible_python", self.content)
         self.assertIn('py -3 -c "import sys', self.content)
-        for version in ("3.10", "3.11", "3.12", "3.13", "3.14", "3.15"):
+        for version in ("3.11", "3.12", "3.13", "3.14", "3.15"):
             self.assertIn(f"call :try_py_version {version}", self.content)
         self.assertIn('set "BASE_EXE=py"', self.content)
         self.assertIn('set "BASE_ARG=-3"', self.content)
@@ -28,7 +28,8 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn("where python >nul 2>&1", self.content)
         self.assertIn("where python3 >nul 2>&1", self.content)
         self.assertIn('if "%PY_ONLY%"=="1" exit /b 0', self.content)
-        self.assertIn("<= (3, 15)", self.content)
+        self.assertIn("(3, 11) <= sys.version_info[:2] <= (3, 15)", self.content)
+        self.assertNotIn("call :try_py_version 3.10", self.content)
 
     def test_unique_labels_and_no_system_python_modification(self):
         labels = re.findall(r"^:([A-Za-z0-9_]+)$", self.content, flags=re.M)
@@ -39,11 +40,11 @@ class LauncherContractTests(unittest.TestCase):
 
     def test_version_matched_pillow_install(self):
         self.assertIn('--only-binary=:all: -r "requirements-desktop.txt"', self.content)
-        self.assertIn("expected = '12.0.0' if", self.content)
-        self.assertIn("else '13.0.0'", self.content)
+        self.assertIn("assert PIL.__version__ == '13.0.0'", self.content)
+        self.assertNotIn("12.0.0", self.content)
         requirements = (ROOT / "requirements-desktop.txt").read_bytes().decode("ascii")
-        self.assertIn('Pillow==12.0.0; python_version == "3.10"', requirements)
-        self.assertIn('Pillow==13.0.0; python_version >= "3.11"', requirements)
+        self.assertIn("Pillow==13.0.0", requirements)
+        self.assertNotIn("Pillow==12", requirements)
         self.assertIn("import tkinter", self.content)
 
     def test_ci_check_does_not_open_gui(self):
@@ -54,6 +55,7 @@ class LauncherContractTests(unittest.TestCase):
 
     def test_launcher_explains_missing_python(self):
         self.assertIn("py -0p", self.content)
+        self.assertIn("Python 3.10 is not supported by Pillow 13.", self.content)
         self.assertIn("py -3 --version", self.content)
         self.assertIn("where py", self.content)
         self.assertIn('if "%CHECK_ONLY%"=="0" pause', self.content)

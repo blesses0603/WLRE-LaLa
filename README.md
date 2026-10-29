@@ -14,9 +14,9 @@
 
 ## Windows 啟動
 
-需 Windows 10／11 及已安裝的 **Python 3.10～3.15（需包含 Tkinter）**。BAT 不會因為 Python 3.14／3.15 較新就直接判定未安裝。
+需 Windows 10／11 及已安裝的 **Python 3.11～3.15（需包含 Tkinter）**。目前統一使用 **Pillow 13.0.0**；由於 Pillow 13 不支援 Python 3.10，僅安裝 3.10 時 BAT 會顯示版本不相容，建議安裝 Python 3.11 以上。
 
-**從 GitHub PR 的開發分支下載完整 ZIP、解壓縮後，直接雙擊 `run_lala.bat` 即可。** 第一次啟動時會在專案資料夾建立 `.venv`，依 Python 版本安裝 Pillow（3.10 使用 12.0.0；3.11～3.15 使用 13.0.0，通常需要網路）；之後雙擊會使用同一份環境，不必再手動執行 pip。BAT 會**先自動偵測 Windows 的 `py`（Python Launcher）**，先嘗試 `py -3` 的預設版本，再依序嘗試已註冊的 3.15／3.14／3.13／3.12／3.11／3.10；若沒有 `py` 或該 Launcher 沒有相容版本，再偵測 `python`、`python3`（PATH）。不需手動設定 Python 路徑，且不會因僅安裝 Python 3.14／3.15 就顯示找不到 Python。找不到時顯示安裝說明與 `py -0p` 檢查指令，而**不會自動下載或安裝 Python 本體**。若已有舊版 `.venv`，BAT 會檢查其版本與 Pillow，必要時更新 Pillow；只有 `.venv` 本身損壞或版本超出支援範圍時，才需自行重新命名 `.venv` 後再啟動。資料夾唯讀或下載失敗時，BAT 會顯示錯誤並保留視窗。
+**從 GitHub PR 的開發分支下載完整 ZIP、解壓縮後，直接雙擊 `run_lala.bat` 即可。** 第一次啟動時會在專案資料夾建立 `.venv`，統一安裝 Pillow 13.0.0（通常需要網路）；之後雙擊會使用同一份環境，不必再手動執行 pip。BAT 會**先自動偵測 Windows 的 `py`（Python Launcher）**，先嘗試 `py -3` 的預設版本，再依序嘗試已註冊的 3.15／3.14／3.13／3.12／3.11；若沒有 `py` 或該 Launcher 沒有相容版本，再偵測 `python`、`python3`（PATH）。不需手動設定 Python 路徑，且不會因僅安裝 Python 3.14／3.15 就顯示找不到 Python。找不到時顯示安裝說明與 `py -0p` 檢查指令，而**不會自動下載或安裝 Python 本體**。若已有使用 Python 3.11 以上的 `.venv`，BAT 會檢查並更新 Pillow 至 13.0.0；若舊 `.venv` 使用 Python 3.10 或環境損壞，BAT 會提示自行重新命名 `.venv` 後再啟動，不會擅自刪除舊環境。資料夾唯讀或下載失敗時，BAT 會顯示錯誤並保留視窗。
 
 進階開發／CI 可在 Windows 命令提示字元檢查 BAT 與環境，但不顯示 GUI：
 
