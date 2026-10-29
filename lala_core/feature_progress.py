@@ -17,6 +17,7 @@ class FeatureProgress:
 
 _LOCAL = {
     "dashboard": "可讀取本機功能狀態",
+    "accounts": "分流選擇、遮蔽密碼輸入、登入狀態機與會話安全控制；目前正式服協定未核對，禁止傳送帳密",
     "resources": "資源 SHA-256、官方 Manifest／YooAsset 全量索引唯讀解析（不可登入）",
     "battle": "權威回合的離線技能候選（不發送）",
     "battle_ai": "手動啟用條件的離線技能候選（不自動出招）",
