@@ -22,6 +22,19 @@ def role(index):
             + b"\0" * (4*4+2+4*2+4*2))
 
 
+def world_player(role_id=654321, name="測試角色", *, scene=120, x=30, y=40):
+    name_bytes = name.encode("utf-16le")
+    return (
+        struct.pack("<IBHHH", role_id, 1, scene, x, y)
+        + b"\0" * (3 + 8 + 2)
+        + b"\x00"  # no equipment
+        + bytes((len(name_bytes),)) + name_bytes
+        + b"\0" * 8  # private namecard fields
+        + b"\x00"  # empty private signature
+        + struct.pack("<H", 0)  # title
+    )
+
+
 class FakeConnection:
     def __init__(self, incoming):
         self.incoming = list(incoming)
@@ -64,7 +77,8 @@ class LegacyLoginTrialTests(unittest.TestCase):
         a, sockets, opened = self.setup_adapter(
             [frame(1, 23) + frame(63, 7, b"\0\0")],
             [frame(63, 7, b"\0\x02"),
-             frame(63, 1, role(2) + role(1)), frame(1, 11)],
+             frame(63, 1, role(2) + role(1)),
+             frame(1, 11) + frame(3, 1, world_player())],
         )
         result = a.authenticate(line_id=101, account="fakeaccount",
                                 password="fakepassword", consent=True)
@@ -84,10 +98,48 @@ class LegacyLoginTrialTests(unittest.TestCase):
         selected = a.select_role(1)
         self.assertEqual(selected.role_slot, 1)
         self.assertTrue(selected.world_packet_observed)
+        self.assertTrue(selected.initial_data_complete)
+        self.assertEqual(selected.role_id, 654321)
+        self.assertEqual(selected.character_name, "測試角色")
+        self.assertEqual((selected.scene, selected.x, selected.y), (120, 30, 40))
+        self.assertFalse(selected.ongoing_connection)
         self.assertFalse(selected.official_identity_verified)
         self.assertTrue(sockets[1].closed)
         select = bytes(x ^ OLD_TX_XOR for x in sockets[1].sent[-1])
         self.assertEqual(select[4:], b"\x3f\x02\x01")
+
+    def test_s1_11_alone_is_not_character_sync(self):
+        a, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(1, 11)],
+        )
+        a.authenticate(line_id=101, account="fake", password="fake", consent=True)
+        with self.assertRaises(LoginError):
+            a.select_role(1)
+        self.assertTrue(sockets[1].closed)
+
+    def test_s3_1_without_initial_data_complete_is_not_success(self):
+        a, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player())],
+        )
+        a.authenticate(line_id=101, account="fake", password="fake", consent=True)
+        with self.assertRaises(LoginError):
+            a.select_role(1)
+        self.assertTrue(sockets[1].closed)
+
+    def test_invalid_s3_1_is_rejected_even_if_s1_11_is_present(self):
+        a, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()[:-3]) + frame(1, 11)],
+        )
+        a.authenticate(line_id=101, account="fake", password="fake", consent=True)
+        with self.assertRaisesRegex(LoginError, "S3-1"):
+            a.select_role(1)
+        self.assertTrue(sockets[1].closed)
 
     def test_opt_in_required_before_any_dial(self):
         a, sock, endpoints = self.setup_adapter([], [])
