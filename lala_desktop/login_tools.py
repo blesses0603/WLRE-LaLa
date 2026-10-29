@@ -82,7 +82,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                     ok = coordinator.complete(generation, outcome)
                     view = coordinator.view()
                     if ok:
-                        names = tuple(str(x) for x in view.role_ids)
+                        names = tuple(str(x) for x in view.role_slots)
                         role_picker.configure(values=names, state="readonly" if names else "disabled")
                         if names:
                             roles.set(names[0])

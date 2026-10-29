@@ -15,7 +15,7 @@ class FakeApprovedAdapter:
         self.calls = []
     def authenticate(self, *, endpoint, account, password):
         self.calls.append((endpoint, account, password))
-        return VerifiedLoginOutcome(True, (777, 888), True, True)
+        return VerifiedLoginOutcome(True, (1, 2), True, True)
 
 
 class LoginServiceTests(unittest.TestCase):
@@ -44,10 +44,10 @@ class LoginServiceTests(unittest.TestCase):
         self.assertEqual(adapter.calls[0][0], ("34.81.10.22", 16988))
         self.assertTrue(login.complete(generation, result))
         self.assertEqual(login.view().phase, "role_selection")
-        self.assertEqual(login.view().role_ids, (777, 888))
+        self.assertEqual(login.view().role_slots, (1, 2))
         self.assertTrue(login.session.view().connected)
         self.assertTrue(login.session.view().resource_verified)
-        self.assertFalse(login.choose_role(role_id=777))
+        self.assertFalse(login.choose_role(role_id=1))
         self.assertNotIn("secret", str(login.view()))
 
     def test_result_cannot_cross_disconnect_or_new_attempt(self):
@@ -56,7 +56,7 @@ class LoginServiceTests(unittest.TestCase):
         gen = login.begin(line_id=101, account="demo", password="secret",
                           resources_verified=True)
         login.cancel()
-        self.assertFalse(login.complete(gen, VerifiedLoginOutcome(True, (777,),
+        self.assertFalse(login.complete(gen, VerifiedLoginOutcome(True, (1,),
                                                                    True, True)))
         self.assertFalse(login.session.view().connected)
         with self.assertRaises(LoginError):

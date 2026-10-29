@@ -21,7 +21,7 @@ class LoginView:
     phase: str
     line_id: int | None
     authenticated: bool
-    role_ids: tuple[int, ...]
+    role_slots: tuple[int, ...]
     reason: str
 
 
@@ -29,7 +29,7 @@ class LoginView:
 class VerifiedLoginOutcome:
     """Only a protocol/endpoint-audited adapter may return this result."""
     authenticated: bool
-    role_ids: tuple[int, ...]
+    role_slots: tuple[int, ...]
     protocol_verified: bool
     endpoint_verified: bool
 
@@ -134,17 +134,18 @@ class LoginCoordinator:
                     or outcome.authenticated is not True
                     or outcome.protocol_verified is not True
                     or outcome.endpoint_verified is not True
-                    or not isinstance(outcome.role_ids, tuple)
-                    or any(type(x) is not int or not 0 < x <= 0xffffffff
-                           for x in outcome.role_ids)
-                    or len(outcome.role_ids) > 2
-                    or len(outcome.role_ids) != len(set(outcome.role_ids))):
+                    or not isinstance(outcome.role_slots, tuple)
+                    or not outcome.role_slots
+                    or any(type(x) is not int or x not in (1, 2)
+                           for x in outcome.role_slots)
+                    or len(outcome.role_slots) > 2
+                    or len(outcome.role_slots) != len(set(outcome.role_slots))):
                 self.session.disconnect()
                 self._phase = "rejected"
                 self._reason = failed_reason
                 return False
             self.session.start(authenticated=True, resources_verified=True)
-            self._roles = outcome.role_ids
+            self._roles = outcome.role_slots
             self._phase = "role_selection"
             self._reason = "伺服器驗證已回覆；等待選擇角色"
             return True
