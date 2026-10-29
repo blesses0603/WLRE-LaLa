@@ -17,9 +17,9 @@
 
 需 Windows 10／11 及已安裝的 **Python 3.11～3.15（需包含 Tkinter）**。目前統一使用 **Pillow 13.0.0**；由於 Pillow 13 不支援 Python 3.10，僅安裝 3.10 時 BAT 會顯示版本不相容，建議安裝 Python 3.11 以上。
 
-**下載 PR #2 的最新開發分支，完整解壓縮後，雙擊 `run_lala.bat`。** 啟動器先檢查 Python／Pillow 13，再查詢當前官方版本，下載及完整解析 `DataPackage`、`MainPackage` 兩份 Manifest，依檔案索引下載**兩包列出的所有 Bundle**。每個 Bundle 都必須通過大小、MD5、CRC32LE 驗證，才會原子寫入私有快取。全部完成並通過複查後，才允許 LaLa 主介面開啟；安裝過程會建立 `install.pending` 標記，若更新中斷，即使電腦留有上一版 `installed.json` 也不能繞過檢查直接開啟；重新完成安裝後才清除標記。斷線、磁碟不足、資料格式不同、雜湊不符或超過安全配額都會**停止啟動**，不會直接跳進離線介面。
+**下載 PR #2 的最新開發分支，完整解壓縮後，雙擊 `run_lala.bat`。** 啟動器先檢查 Python／Pillow 13，再查詢當前官方版本，下載及完整解析 `DataPackage`、`MainPackage` 兩份 Manifest，依照**LaLa 已核對功能的精確 AssetPath**，只下載其所需 Bundle 與遞迴相依檔案；不下載兩包全部的遊戲資源。每個 Bundle 都必須通過大小、MD5、CRC32LE 驗證，才會原子寫入私有快取。全部完成並通過複查後，才允許 LaLa 主介面開啟；安裝過程會建立 `install.pending` 標記，若更新中斷，即使電腦留有上一版 `installed.json` 也不能繞過檢查直接開啟；重新完成安裝後才清除標記。斷線、磁碟不足、資料格式不同、雜湊不符或超過安全配額都會**停止啟動**，不會直接跳進離線介面。
 
-快取路徑為 Windows `%LOCALAPPDATA%\\LaLa\\official_resources`，不會修改遊戲原始安裝目錄，也不會將遊戲素材加入 GitHub。首次下載可能需要較長時間與較大的硬碟空間；預設安全上限為 32 GiB、100,000 個 Bundle、單檔 256 MiB，另預留至少 512 MiB 空間。既有檔案必須重新驗證，通過則可重用；中斷後可再次雙擊繼續。若資源規模超過預設配額，程式會拒絕啟動，需要先確認實際下載量再調整設定，不會悄悄突破限制。
+快取路徑為 Windows `%LOCALAPPDATA%\\LaLa\\official_resources`，不會修改遊戲原始安裝目錄，也不會將遊戲素材加入 GitHub。只下載 LaLa 所需的 Bundle，而不會下載所有官方素材；初次使用仍可能需要一些下載時間與磁碟空間；預設安全上限為 32 GiB、100,000 個 Bundle、單檔 256 MiB，另預留至少 512 MiB 空間。既有檔案必須重新驗證，通過則可重用；中斷後可再次雙擊繼續。若資源規模超過預設配額，程式會拒絕啟動，需要先確認實際下載量再調整設定，不會悄悄突破限制。
 
 **資源安裝完整 ≠ 遊戲資料 Schema 已驗證或可以登入官方伺服器。** 目前正式服登入、戰鬥、交易等功能仍受安全閘門保護，不能僅憑安裝成功就解鎖。正常安裝後 CMD 會透過 Python 子程序開啟無主控台 LaLa；要保留索引診斷結果可使用 `run_lala.bat --diagnose`（只查版本及 Manifest，不下載全部 Bundle、不開 UI）。第一次啟動時會在專案資料夾建立 `.venv`、安裝 Pillow 13；之後會重用同一環境。
 
@@ -45,7 +45,7 @@ Windows 主畫面右側小地圖、事件紀錄與戰場陣形**共用使用者�
 
 ## 官方資源強制安裝與診斷（P1）
 
-一般啟動必須使用 `run_lala.bat`：版本／完整 Manifest 索引 → 全量 Bundle 計畫與安全配額 → 已快取檔案驗證／增量下載 → 最終版本與 Bundle 複查 → 原子安裝收據 → 主程式。**任一步驟失敗就不能進入 LaLa。**
+一般啟動使用 `run_lala.bat`：版本／兩包 Manifest 完整索引 → **依 LaLa 功能選出必要 AssetPath 及其 Bundle／遞迴相依** → 選定檔案的快取驗證／缺檔下載 → 官方版號與選定檔案複查 → **綁定功能資源政策的安裝收據** → 主程式。**不下載整套遊戲資源**。**任一步驟失敗就不能進入 LaLa。**
 
 驗收與診斷指令：
 
@@ -56,8 +56,9 @@ Windows 主畫面右側小地圖、事件紀錄與戰場陣形**共用使用者�
 
 - 官方版號與兩份 Manifest 依各自完整修訂號確認，不能固定使用 1275。
 - HTTPS 下載禁止任意主機、轉址與不安全路徑；Bundle 下載需要 Manifest 列出的檔名與大小、MD5、CRC32LE。
-- 安裝收據僅表示兩包所有 Manifest 列出的 Bundle 已複查，不宣稱已解包 Unity 資產或證實遊戲資料格式。登入仍維持停用。
-- 相關程式：`lala_core/resource_bootstrap.py`、`bundle_install.py`、`yooasset_index.py`，詳見 `docs/官方資源唯讀檢查.md`。
+- 安裝收據只表示**LaLa 必要 AssetPath 所屬 Bundle 及所有遞迴相依**已複查，並與目前功能資源選擇政策一致；兩包 Manifest 仍完整校驗，但不下載其他未使用的 Bundle。舊版全量安裝收據不會自動通過新政策驗證。此結果不代表 Unity 資產已解碼或遊戲資料格式可用，登入仍維持停用。
+- 目前經舊版 1275 實際索引核對的四種精確資料來源為：`Assets/ResourcesBuild/Data/Eve.bytes`、`ItemData_C.bytes`、`SmithData_C.bytes`、`ScenesData_C.bytes`；它們供地圖／傳點／NPC／NPC 商店／物品／製作使用。其他功能沒有明確資源需求時**不擴大下載**，需要的新表必須先核對路徑與新版 Schema。
+- 相關程式：`lala_core/feature_resources.py`、`resource_bootstrap.py`、`bundle_install.py`、`yooasset_index.py`，詳見 `docs/官方資源唯讀檢查.md`。
 
 ## 正式遊戲分流的單次 TCP 連線實驗（P1）
 

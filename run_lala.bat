@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 rem LaLa Windows launcher. Automatically locate a compatible Python via "py" or PATH.
-rem Double click: check Python/Pillow, parse two official Manifests, install all Bundles, then open LaLa.
+rem Double click: check Python/Pillow, parse official Manifests, install LaLa feature Bundles only, then open.
 rem CI: --check skips network and GUI. Diagnostic: --diagnose keeps network result visible.
 
 cd /d "%~dp0"
@@ -81,7 +81,7 @@ if "%DIAGNOSE_ONLY%"=="1" (
     exit /b 0
 )
 
-rem MANDATORY: verify two current Manifests and install ALL required Bundles
+rem MANDATORY: verify two Manifests and install only the reviewed LaLa feature Bundles
 rem into the user's private LaLa cache. Any failure blocks GUI entry.
 set "LALA_STARTUP_RESOURCE_STATUS=not_checked"
 echo [LaLa] Checking official indexes and installing missing game resources...
