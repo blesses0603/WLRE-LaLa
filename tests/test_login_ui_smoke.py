@@ -47,6 +47,54 @@ class LoginWindowTests(unittest.TestCase):
             finally:
                 root.destroy()
 
+    def test_experimental_login_requires_one_click_consent_and_consumes_it(self):
+        from lala_desktop.app import LaLaDesktop
+        from lala_desktop import login_tools
+        from lala_core.legacy_login_trial import LegacyTrialResult
+        from unittest.mock import Mock
+        import time
+
+        fake = Mock()
+        fake.authenticate.return_value = LegacyTrialResult(True, True, (1,))
+        with patch.object(login_tools, "verify_installed",
+                          return_value={"resources_installed": True}), \
+             patch.object(login_tools, "LegacyLoginTrial", return_value=fake):
+            root = LaLaDesktop()
+            try:
+                root.open_feature("accounts")
+                root.update()
+                window = root._feature_windows["accounts"]
+                def descendants(widget):
+                    for child in widget.winfo_children():
+                        yield child
+                        yield from descendants(child)
+                all_widgets = list(descendants(window))
+                fields = [w for w in all_widgets if type(w) is tk.Entry]
+                checkbox = next(w for w in all_widgets if type(w) is tk.Checkbutton)
+                login = next(w for w in all_widgets if getattr(w, "label", "") == "登入")
+                fields[0].insert(0, "fake-account")
+                fields[1].insert(0, "fake-password")
+                self.assertEqual(checkbox.var if hasattr(checkbox, "var") else
+                                 root.getvar(checkbox.cget("variable")), 0)
+                # Default UI still has no path that sends credentials.
+                login.invoke()
+                root.update()
+                fake.authenticate.assert_not_called()
+                fields[1].insert(0, "fake-password")
+                checkbox.invoke()  # real user gesture
+                login.invoke()
+                for _ in range(10):
+                    root.update()
+                    if fake.authenticate.called:
+                        break
+                    time.sleep(.015)
+                fake.authenticate.assert_called_once()
+                self.assertEqual(root.getvar(checkbox.cget("variable")), 0)
+                self.assertEqual(fields[1].get(), "")
+                self.assertFalse(window._lala_login_coordinator.session.view().connected)
+            finally:
+                root.destroy()
+
     def test_main_header_disconnect_uses_login_controller(self):
         from lala_desktop.app import LaLaDesktop
         root = LaLaDesktop()

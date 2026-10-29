@@ -166,6 +166,9 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
             status.set(str(error))
             return
 
+        # Authorization is for exactly this click. A subsequent attempt,
+        # account change or retry requires the user to opt in again.
+        allow_legacy.set(False)
         coordinator.cancel()  # never elevate legacy results into trusted session
         if state["client"] is not None:
             state["client"].close()
