@@ -75,6 +75,11 @@ class LauncherContractTests(unittest.TestCase):
                         self.content.index("pythonw.exe"))
         self.assertIn('"%VENV_PY%" -m lala_desktop', self.content)
 
+    def test_gui_launcher_exposes_windows_pythonw_errors(self):
+        code = (ROOT / "lala_desktop" / "__main__.py").read_text(encoding="utf-8")
+        self.assertIn('MessageBoxW(', code)
+        self.assertIn('python.exe -m lala_desktop', code)
+
     def test_launcher_explains_missing_python(self):
         self.assertIn("py -0p", self.content)
         self.assertIn("Python 3.10 is not supported by Pillow 13.", self.content)
