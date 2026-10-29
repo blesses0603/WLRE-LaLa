@@ -7,6 +7,7 @@ from . import theme as t
 from .version import DESKTOP_VERSION
 from .window_policy import apply_fixed_window
 from .window_chrome import install_borderless
+from .rounded_widgets import RoundedPanel, RoundedButton, rounded_points
 
 
 class LaLaDesktop(tk.Tk):
@@ -42,23 +43,17 @@ class LaLaDesktop(tk.Tk):
               foreground=[("selected", t.CYAN)])
         s.configure("Classic.Vertical.TScrollbar", background=t.PANEL, troughcolor=t.BG)
 
-    def _panel(self, parent, *, bg=t.PANEL, border=True):
-        return tk.Frame(parent, bg=bg, highlightthickness=1 if border else 0,
-                        highlightbackground=t.BORDER)
+    def _panel(self, parent, *, bg=t.PANEL, border=True, radius=16, inset=6):
+        return RoundedPanel(parent, fill=bg, radius=radius, border=border, inset=inset)
 
     def _button(self, parent, label, command, *, emphasis=False, width=None):
-        return tk.Button(parent, text=label, command=command, width=width,
-                         bg=t.SURFACE_ACTIVE if not emphasis else t.FIELD,
-                         activebackground=t.SURFACE, fg=t.CYAN if emphasis else t.TEXT,
-                         activeforeground=t.SECTION, relief="flat", bd=0,
-                         font=(self._font, 10, "bold"), cursor="hand2",
-                         padx=10, pady=6, takefocus=True,
-                         highlightthickness=1, highlightbackground=t.BORDER)
+        return RoundedButton(parent, label, command, width=width, emphasis=emphasis)
 
     def _build(self):
         self._top = self._panel(self, bg=t.PANEL)
         self._top.pack(fill="x", padx=8, pady=(8, 3))
-        header = tk.Frame(self._top, bg=t.PANEL)
+        top = self._top.content
+        header = tk.Frame(top, bg=t.PANEL)
         header.pack(side="left", fill="x", expand=True, padx=13, pady=7)
         brand = self.text(header, "✦  LaLa  ｜  飄流幻境 RE", size=17, bold=True,
                           color=t.SECTION)
@@ -67,7 +62,7 @@ class LaLaDesktop(tk.Tk):
                              size=10, color=t.MUTED)
         subtitle.pack(anchor="w", pady=(3, 0))
         self._chrome.bind_drag(self._top, header, brand, subtitle)
-        actions = tk.Frame(self._top, bg=t.PANEL)
+        actions = tk.Frame(top, bg=t.PANEL)
         actions.pack(side="right", padx=12, pady=8)
         self.text(actions, "● 離線預覽", color=t.WARN, size=10).pack(side="left", padx=11)
         self._button(actions, "登入／選角", lambda: self.open_feature("accounts")).pack(side="left", padx=3)
@@ -83,21 +78,22 @@ class LaLaDesktop(tk.Tk):
         body.columnconfigure(0, weight=1, minsize=0)
         body.columnconfigure(1, weight=0, minsize=t.MAP_SIZE[0])
         body.rowconfigure(0, weight=1)
-        left = self._panel(body, bg=t.PANEL, border=False)
+        left = self._panel(body, bg=t.PANEL, border=False, radius=18, inset=5)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        right = self._panel(body, bg=t.PANEL, border=False)
+        right = self._panel(body, bg=t.PANEL, border=False, radius=18, inset=5)
         right.grid(row=0, column=1, sticky="nsew")
         right.configure(width=t.MAP_SIZE[0])
         right.grid_propagate(False)
-        self._build_left(left)
-        self._build_right(right)
+        self._build_left(left.content)
+        self._build_right(right.content)
 
     def _offline_notice(self):
         self._append_event("目前沒有建立連線，沒有任何中斷動作。")
 
     def _build_left(self, parent):
-        navbar = self._panel(parent, bg=t.SURFACE)
-        navbar.pack(fill="x", pady=(0, 6))
+        nav_panel = self._panel(parent, bg=t.SURFACE, inset=4)
+        nav_panel.pack(fill="x", pady=(0, 6))
+        navbar = nav_panel.content
         for key in t.QUICK_KEYS:
             feature = BY_KEY[key]
             # 舊版為 34px 原版遊戲 PNG；P0 不複製官方貼圖，以圓形底板佔位。
@@ -135,9 +131,10 @@ class LaLaDesktop(tk.Tk):
             line.grid(row=row_index, column=0, sticky="nsew")
             for col_index, (title, feature_key) in enumerate(row):
                 line.columnconfigure(col_index, weight=1, uniform=f"card{row_index}")
-                card = self._panel(line, bg=t.SURFACE)
+                card = self._panel(line, bg=t.SURFACE, radius=13, inset=5)
                 card.grid(row=0, column=col_index, sticky="nsew", padx=3, pady=3)
-                header = tk.Frame(card, bg=t.SURFACE)
+                card_body = card.content
+                header = tk.Frame(card_body, bg=t.SURFACE)
                 header.pack(fill="x", padx=8, pady=(7, 0))
                 self.text(header, title, size=11, bold=True, color=t.SECTION).pack(side="left")
                 self._button(header, "開啟", lambda k=feature_key: self.open_feature(k),
@@ -154,12 +151,13 @@ class LaLaDesktop(tk.Tk):
                     "party": "隊伍：等待角色同步",
                     "efficiency": "經驗資料：等待首場紀錄",
                 }[feature_key]
-                self.text(card, detail, size=10, color=t.MUTED, anchor="nw",
+                self.text(card_body, detail, size=10, color=t.MUTED, anchor="nw",
                           justify="left").pack(fill="both", expand=True, padx=10, pady=(6, 6))
 
     def _build_chat(self, parent):
-        area = self._panel(parent, bg=t.SURFACE)
-        area.pack(side="bottom", fill="x", padx=4, pady=(6, 1))
+        chat_panel = self._panel(parent, bg=t.SURFACE, radius=16, inset=7)
+        chat_panel.pack(side="bottom", fill="x", padx=4, pady=(6, 1))
+        area = chat_panel.content
         title = tk.Frame(area, bg=t.SURFACE)
         title.pack(fill="x", padx=9, pady=5)
         self.text(title, "聊天", size=11, bold=True, color=t.SECTION).pack(side="left")
@@ -178,19 +176,27 @@ class LaLaDesktop(tk.Tk):
         self._button(title, "地圖／導航", lambda: self.open_feature("world")).pack(
             side="right", padx=5)
         self._map_canvas = tk.Canvas(parent, width=t.MAP_SIZE[0] - 10,
-                                    height=t.MAP_SIZE[1], bg=t.SURFACE,
-                                    relief="flat", highlightbackground=t.BORDER,
-                                    highlightthickness=1)
+                                    height=t.MAP_SIZE[1], bg=t.PANEL,
+                                    relief="flat", highlightthickness=0, bd=0)
         self._map_canvas.pack(fill="x", padx=4)
         self._map_canvas.bind("<Configure>", self._paint_map)
 
-        tabs = ttk.Notebook(parent, style="Classic.TNotebook")
-        tabs.pack(fill="both", expand=True, pady=(8, 0), padx=4)
-        events = self._panel(tabs, bg=t.PANEL, border=False)
-        battle = self._panel(tabs, bg=t.PANEL, border=False)
-        tabs.add(events, text="事件紀錄")
-        tabs.add(battle, text="戰場陣形")
-        self._events = tk.Text(events, bg=t.PANEL, fg=t.MUTED, relief="flat",
+        tab_panel = self._panel(parent, bg=t.SURFACE, radius=16, inset=7)
+        tab_panel.pack(fill="both", expand=True, pady=(8, 0), padx=4)
+        tab_body = tab_panel.content
+        tab_buttons = tk.Frame(tab_body, bg=t.SURFACE)
+        tab_buttons.pack(fill="x", pady=(1, 5))
+        self._button(tab_buttons, "事件紀錄", lambda: self._show_right_tab("events")).pack(side="left", padx=(0, 5))
+        self._button(tab_buttons, "戰場陣形", lambda: self._show_right_tab("battle")).pack(side="left")
+        self._tab_host = tk.Frame(tab_body, bg=t.SURFACE)
+        self._tab_host.pack(fill="both", expand=True)
+        self._right_pages = {
+            "events": tk.Frame(self._tab_host, bg=t.SURFACE),
+            "battle": tk.Frame(self._tab_host, bg=t.SURFACE),
+        }
+        events = self._right_pages["events"]
+        battle = self._right_pages["battle"]
+        self._events = tk.Text(events, bg=t.SURFACE, fg=t.MUTED, relief="flat",
                                font=(self._font, 10), height=8, wrap="word",
                                insertbackground=t.TEXT, state="normal")
         self._events.insert("end", "[系統] LaLa 經典介面離線預覽\n[安全] 沒有讀取任何真實角色或遊戲封包\n")
@@ -199,16 +205,26 @@ class LaLaDesktop(tk.Tk):
         self.text(battle, "戰場尚未同步", size=12, color=t.WARN).pack(pady=(40, 8))
         self.text(battle, "戰場陣形將沿用舊版格位概念；\n此 P0 不顯示假敵人、假血量或假座標。",
                   size=10, color=t.MUTED, justify="center").pack()
+        self._show_right_tab("events")
+
+    def _show_right_tab(self, key):
+        if key not in self._right_pages:
+            return
+        for page in self._right_pages.values():
+            page.pack_forget()
+        self._right_pages[key].pack(fill="both", expand=True)
 
     def _paint_map(self, _event=None):
         c = self._map_canvas
         w, h = max(c.winfo_width(), 2), max(c.winfo_height(), 2)
         c.delete("all")
-        for x in range(16, w, 24):
+        c.create_polygon(rounded_points(1, 1, w-1, h-1, 16),
+                         fill=t.SURFACE, outline=t.BORDER, width=1.2,
+                         tags=("map-rounded-surface",))
+        for x in range(16, w-16, 24):
             c.create_line(x, 0, x, h, fill="#1d4054")
-        for y in range(15, h, 24):
+        for y in range(16, h-16, 24):
             c.create_line(0, y, w, y, fill="#1d4054")
-        c.create_rectangle(16, 18, w-16, h-17, outline=t.BORDER)
         c.create_text(w/2, h/2-14, text="尚無小地圖資料", fill=t.SECTION,
                       font=(self._font, 15, "bold"))
         c.create_text(w/2, h/2+17, text="場景與 NPC 資料待官方資源驗證",
@@ -283,8 +299,9 @@ class LaLaDesktop(tk.Tk):
         apply_fixed_window(window, kind="dialog", parent=self)
         chrome = install_borderless(window)
         window.configure(bg=t.BG)
-        pane = self._panel(window, bg=t.PANEL)
-        pane.pack(fill="both", expand=True, padx=15, pady=15)
+        pane_panel = self._panel(window, bg=t.PANEL, radius=18, inset=8)
+        pane_panel.pack(fill="both", expand=True, padx=15, pady=15)
+        pane = pane_panel.content
         toolbar = tk.Frame(pane, bg=t.PANEL)
         toolbar.pack(fill="x", padx=24, pady=(11, 6))
         label = self.text(toolbar, feature.title, size=21, bold=True, color=t.SECTION)

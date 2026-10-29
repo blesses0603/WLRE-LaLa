@@ -26,6 +26,16 @@ class DesktopSmokeTests(unittest.TestCase):
         try:
             self._assert_fixed(root, kind="main")
             self.assertTrue(root._map_canvas.winfo_exists())
+            self.assertEqual(len(root._map_canvas.find_withtag("map-rounded-surface")), 1)
+            from lala_desktop.rounded_widgets import RoundedPanel, RoundedButton
+            self.assertIsInstance(root._top, RoundedPanel)
+            self.assertIsInstance(root._minimize_button, RoundedButton)
+            self.assertEqual(len(root._top.canvas.find_withtag("round")), 1)
+            self.assertEqual(len(root._minimize_button.find_withtag("round-button")), 1)
+            root._show_right_tab("battle")
+            self.assertTrue(root._right_pages["battle"].winfo_manager())
+            root._show_right_tab("events")
+            self.assertTrue(root._right_pages["events"].winfo_manager())
             self.assertTrue(root._minimize_button.winfo_exists())
             self.assertTrue(root._close_button.winfo_exists())
             self.assertTrue(root._events.winfo_exists())
