@@ -233,3 +233,49 @@ class LegacyLoginTrialTests(unittest.TestCase):
         self.assertTrue(sockets[1].closed)
         with self.assertRaises(LoginError):
             a.select_role(1)
+
+
+    def test_role_packet_cap_reports_known_markers_without_silent_success(self):
+        # The server-like fake floods unrelated events after a valid S3-1.
+        # Missing S1-11 still means no authoritative character sync.
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(9, 9) * 513],
+        )
+        trial.authenticate(line_id=101, account="synthetic_user",
+                           password="synthetic_pass", consent=True)
+        with self.assertRaises(LoginError) as error:
+            trial.select_role(1)
+        message = str(error.exception)
+        self.assertIn("選角試驗超過 512 個封包", message)
+        self.assertIn("S3-1：已收到", message)
+        self.assertIn("S1-11：未收到", message)
+        self.assertNotIn("synthetic_user", message)
+        self.assertNotIn("synthetic_pass", message)
+        self.assertTrue(sockets[1].closed)
+        self.assertEqual(trial._verified_slots, ())
+
+    def test_role_cap_without_world_or_ready_still_closes(self):
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(8, 8) * 513],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        with self.assertRaises(LoginError) as error:
+            trial.select_role(1)
+        self.assertIn("S3-1：未收到", str(error.exception))
+        self.assertIn("S1-11：未收到", str(error.exception))
+        self.assertTrue(sockets[1].closed)
+
+    def test_verification_packet_limit_identifies_stage(self):
+        trial, sockets, opened = self.setup_adapter(
+            [frame(8, 8) * 513], [])
+        with self.assertRaises(LoginError) as error:
+            trial.authenticate(line_id=101, account="fake",
+                               password="fake", consent=True)
+        self.assertIn("帳號驗證試驗超過 512 個封包", str(error.exception))
+        self.assertEqual(len(opened), 1)
+        self.assertTrue(sockets[0].closed)
