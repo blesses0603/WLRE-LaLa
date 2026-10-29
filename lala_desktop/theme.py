@@ -14,10 +14,11 @@ BORDER = "#397c98"
 WARN = "#ffe2b0"
 DISABLED = "#7292a4"
 
-# 舊版 1280×800 主視窗；保留小地圖、戰場與聊天的固定位置概念。
-WINDOW_SIZE = (1280, 800)
-MIN_SIZE = (1060, 680)
-MAP_SIZE = (350, 288)
+# 新版視窗一律固定 16:9；舊版主畫面編排（地圖、戰場、聊天）保留。
+# 大螢幕採 1280x720，較小螢幕由 window_policy 選用等比例固定預設。
+WINDOW_SIZE = (1280, 720)
+DIALOG_SIZE = (800, 450)
+MAP_SIZE = (350, 240)
 QUICK_KEYS = (
     "dashboard", "party", "companions", "expeditions", "alchemy",
     "crafting", "efficiency", "battle_ai", "inventory",

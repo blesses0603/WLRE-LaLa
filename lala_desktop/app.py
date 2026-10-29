@@ -5,14 +5,14 @@ from tkinter import font as tkfont, ttk
 from lala_core.features import BY_KEY, FEATURES
 from . import theme as t
 from .version import DESKTOP_VERSION
+from .window_policy import apply_fixed_window
 
 
 class LaLaDesktop(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"LaLa — {DESKTOP_VERSION}｜經典介面預覽")
-        self.geometry(f"{t.WINDOW_SIZE[0]}x{t.WINDOW_SIZE[1]}")
-        self.minsize(*t.MIN_SIZE)
+        apply_fixed_window(self, kind="main")
         self.configure(bg=t.BG)
         self._font = self._choose_font()
         self._feature_windows = {}
@@ -220,8 +220,7 @@ class LaLaDesktop(tk.Tk):
         window = tk.Toplevel(self)
         self._feature_windows["_catalog"] = window
         window.title("LaLa ｜全部功能")
-        window.geometry("540x570")
-        window.minsize(420, 420)
+        apply_fixed_window(window, kind="dialog", parent=self)
         window.configure(bg=t.BG)
         search = tk.StringVar()
         self.text(window, "功能入口", size=17, bold=True, color=t.SECTION).pack(
@@ -266,8 +265,7 @@ class LaLaDesktop(tk.Tk):
         window = tk.Toplevel(self)
         self._feature_windows[key] = window
         window.title(f"LaLa ｜{feature.title}（UI 預覽）")
-        window.geometry("620x430")
-        window.minsize(480, 320)
+        apply_fixed_window(window, kind="dialog", parent=self)
         window.configure(bg=t.BG)
         pane = self._panel(window, bg=t.PANEL)
         pane.pack(fill="both", expand=True, padx=15, pady=15)

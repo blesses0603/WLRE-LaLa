@@ -29,5 +29,6 @@ class ClassicInterfaceContractTests(unittest.TestCase):
         self.assertGreaterEqual(android.WINDOW_RADIUS, 20)
 
     def test_desktop_dimensions(self):
-        self.assertEqual(desktop.WINDOW_SIZE, (1280, 800))
+        self.assertEqual(desktop.WINDOW_SIZE, (1280, 720))
+        self.assertEqual(desktop.DIALOG_SIZE, (800, 450))
         self.assertGreaterEqual(desktop.MAP_SIZE[0], 340)
