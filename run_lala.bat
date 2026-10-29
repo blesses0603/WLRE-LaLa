@@ -37,15 +37,6 @@ if not errorlevel 1 (
 if not defined BASE_PY goto :python_error
 
 :create_venv
-
-where python >nul 2>&1
-if not errorlevel 1 (
-    python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1
-    if not errorlevel 1 set "BASE_PY=python"
-)
-if not defined BASE_PY goto :python_error
-
-:create_venv
 echo [LaLa] Creating local Python environment...
 %BASE_PY% -m venv "%VENV_DIR%"
 if errorlevel 1 goto :venv_error

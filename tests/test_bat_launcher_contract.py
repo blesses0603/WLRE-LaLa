@@ -17,7 +17,7 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn('-m venv "%VENV_DIR%"', self.content)
 
     def test_launcher_installs_explicit_requirements_when_missing(self):
-        self.assertIn('install -r "requirements-desktop.txt"', self.content)
+        self.assertIn('--only-binary=:all: -r "requirements-desktop.txt"', self.content)
         self.assertIn("assert PIL.__version__ == '11.3.0'", self.content)
         self.assertIn("if errorlevel 1 goto :install_error", self.content)
         self.assertIn("--only-binary=:all:", self.content)
@@ -31,6 +31,10 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn('if /I "%~1"=="--check"', self.content)
         self.assertLess(self.content.index('if "%CHECK_ONLY%"=="1"'),
                         self.content.index('"%VENV_PY%" -m lala_desktop'))
+
+    def test_batch_has_unique_venv_label_and_ascii_requirements(self):
+        self.assertEqual(self.content.count("\n:create_venv\n"), 1)
+        (ROOT / "requirements-desktop.txt").read_bytes().decode("ascii")
 
     def test_launcher_returns_error_code_and_keeps_error_visible(self):
         self.assertIn(":failed", self.content)
