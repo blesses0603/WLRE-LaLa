@@ -1,0 +1,43 @@
+"""27 個功能的可驗證完成狀態，避免 UI 將導覽入口誤標成可用。
+
+「本機可用」僅指離線模組與測試，與正式伺服器 E2E 完全不同。
+"""
+from dataclasses import dataclass
+from .features import FEATURES
+
+
+@dataclass(frozen=True, slots=True)
+class FeatureProgress:
+    key: str
+    title: str
+    local_capability: str
+    server_ready: bool = False
+    real_server_tested: bool = False
+
+
+_LOCAL = {
+    "dashboard": "可讀取本機功能狀態",
+    "resources": "本機資源 SHA-256 / 長度校驗",
+    "efficiency": "經驗效率與目標時間計算",
+    "crafting": "材料預約與製作數量規劃",
+    "inventory": "材料持有量與缺料核對",
+    "expeditions": "遠征隊伍資格規劃",
+    "world": "已驗證地圖資料的最短路徑規劃",
+    "portals": "已驗證地圖連線路徑規劃",
+    "logs": "診斷資料安全遮罩",
+}
+PROGRESS = {
+    feature.key: FeatureProgress(
+        feature.key,
+        feature.title,
+        _LOCAL.get(feature.key, "尚無實作；僅有操作入口"),
+    )
+    for feature in FEATURES
+}
+
+
+def report_lines() -> tuple[str, ...]:
+    return tuple(
+        f"{p.title}：{p.local_capability}；正式服：{'已驗收' if p.real_server_tested else '尚未驗收'}"
+        for p in PROGRESS.values()
+    )
