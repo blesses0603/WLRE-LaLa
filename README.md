@@ -16,11 +16,15 @@
 
 需 Windows 10／11 及已安裝的 **Python 3.10～3.13（建議 3.11，包含 Tkinter）**。
 
-**從 GitHub PR 的開發分支下載完整 ZIP、解壓縮後，直接雙擊 `run_lala.bat` 即可。** 第一次啟動時會在專案資料夾建立 `.venv`，自動安裝需要的 Pillow 11.3.0（此步驟通常需要網路）；之後雙擊會使用同一份環境，不必再手動執行 pip。若 Python 未安裝、資料夾唯讀或下載失敗，BAT 會顯示錯誤並保留視窗，方便回報訊息。BAT 會避開不相容的 Python 3.15；如果先前建立的 `.venv` 使用不相容版本，請先自行重新命名 `.venv` 資料夾，再雙擊 BAT。
+**從 GitHub PR 的開發分支下載完整 ZIP、解壓縮後，直接雙擊 `run_lala.bat` 即可。** 第一次啟動時會在專案資料夾建立 `.venv`，自動安裝需要的 Pillow 11.3.0（此步驟通常需要網路）；之後雙擊會使用同一份環境，不必再手動執行 pip。BAT 會**先自動偵測 Windows 的 `py`（Python Launcher）**，依序尋找已安裝且相容的 3.11／3.12／3.13／3.10；若沒有 `py` 或該 Launcher 沒有相容版本，再偵測 `python`、`python3`（PATH）。不需手動設定 Python 路徑，也不會使用不相容的 3.15。找不到時顯示安裝說明與 `py -0p` 檢查指令，而**不會自動下載或安裝 Python 本體**。如果先前建立的 `.venv` 使用不相容版本，請先自行重新命名 `.venv` 資料夾，再雙擊 BAT。資料夾唯讀或下載失敗時，BAT 會顯示錯誤並保留視窗。
 
 進階開發／CI 可在 Windows 命令提示字元檢查 BAT 與環境，但不顯示 GUI：
 
     run_lala.bat --check
+
+僅測試 `py` Launcher 自動偵測的 CI 專用方式（不啟動 GUI）：
+
+    run_lala.bat --check --py-only
 
 另外可在虛擬環境執行：
 

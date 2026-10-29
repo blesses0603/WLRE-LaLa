@@ -21,12 +21,24 @@ jobs:
 
   windows-bat-launcher:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        launcher: [automatic, py-only]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: One-click BAT bootstrap and dependency verification
+      - name: Verify automatic Python detection and environment bootstrap
+        shell: cmd
+        run: |
+          if "${{ matrix.launcher }}"=="py-only" (
+            call run_lala.bat --check --py-only
+          ) else (
+            call run_lala.bat --check
+          )
+      - name: Verify repeated startup reuses environment
         shell: cmd
         run: call run_lala.bat --check
       - name: Test dependency from isolated local environment
