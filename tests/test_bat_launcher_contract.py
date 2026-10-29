@@ -20,6 +20,12 @@ class LauncherContractTests(unittest.TestCase):
         self.assertIn('install -r "requirements-desktop.txt"', self.content)
         self.assertIn("assert PIL.__version__ == '11.3.0'", self.content)
         self.assertIn("if errorlevel 1 goto :install_error", self.content)
+        self.assertIn("--only-binary=:all:", self.content)
+
+    def test_compatible_python_selection(self):
+        self.assertIn("<= (3, 13)", self.content)
+        self.assertIn('set "BASE_PY=python"', self.content)
+        self.assertIn('set "BASE_PY=py -3.11"', self.content)
 
     def test_ci_check_does_not_launch_gui(self):
         self.assertIn('if /I "%~1"=="--check"', self.content)
