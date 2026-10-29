@@ -65,6 +65,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
     actions.pack(fill="x", padx=24, pady=(9, 3))
     messages = SimpleQueue()
     state = {"tcp": False, "login": False}
+    scheduled = {"after_id": None}
 
     def refresh():
         if not parent.winfo_exists():
@@ -92,7 +93,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                         status.set(view.reason)
         except Empty:
             pass
-        parent.after(100, refresh)
+        scheduled["after_id"] = parent.after(100, refresh)
 
     def test_connection():
         if state["tcp"]:
@@ -192,7 +193,14 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
     def cleanup(event):
         if event.widget is parent:
             coordinator.cancel()
+            after_id = scheduled["after_id"]
+            scheduled["after_id"] = None
+            if after_id is not None:
+                try:
+                    parent.after_cancel(after_id)
+                except tk.TclError:
+                    pass
 
     parent.bind("<Destroy>", cleanup, add="+")
-    parent.after(100, refresh)
+    scheduled["after_id"] = parent.after(100, refresh)
     return True
