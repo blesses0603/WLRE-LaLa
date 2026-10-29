@@ -14,15 +14,19 @@
 
 ## Windows 啟動
 
-需本機安裝 Python 3.10 以上及 Tkinter。為顯示**舊版原始 PNG 按鈕**，先在專案根目錄執行：
+需 Windows 10／11 及已安裝的 **Python 3.10 以上（包含 Tkinter）**。
 
-    py -3 -m pip install -r requirements-desktop.txt
+**從 GitHub PR 的開發分支下載完整 ZIP、解壓縮後，直接雙擊 `run_lala.bat` 即可。** 第一次啟動時會在專案資料夾建立 `.venv`，自動安裝需要的 Pillow 11.3.0（此步驟通常需要網路）；之後雙擊會使用同一份環境，不必再手動執行 pip。若 Python 未安裝、資料夾唯讀或下載失敗，BAT 會顯示錯誤並保留視窗，方便回報訊息。
 
-接著雙擊 `run_lala.bat`，或執行：
+進階開發／CI 可在 Windows 命令提示字元檢查 BAT 與環境，但不顯示 GUI：
 
-    py -3 -m lala_desktop
+    run_lala.bat --check
 
-目前沒有 EXE 或內建可攜式 Python。未安裝 Pillow 時 UI 仍可啟動，但原版貼圖會改用 Canvas 備援按鈕。
+另外可在虛擬環境執行：
+
+    .venv\Scripts\python.exe -m lala_desktop
+
+目前沒有 EXE 或內建可攜式 Python。BAT 並非免安裝 Python 的獨立執行檔；若無法安裝 Pillow，啟動流程會明確停止，不以備援圖示冒充原版圖片。
 
 桌面版統一 **16:9 固定視窗政策**：主視窗預設 1280×720，功能與清單視窗預設 800×450，禁止使用者調整大小或最大化；如果螢幕可用空間不足，啟動時選擇較小的 16:9 預設，開啟後仍固定。**移除 Windows 白色系統標題列**，沿用 LaLa 深藍頁首，可拖曳頁首移動視窗；主視窗頁首提供最小化及關閉，功能視窗上方提供關閉。Windows 工作列最小化／還原行為仍待實機驗證。介面外觀採 **舊版按鈕＋圓角面板**：主視窗 20px 外框（Windows 以 Win32 Window Region 裁切）、資訊卡及面板 Canvas 圓角、青色細描邊；按鈕則使用舊版 1262 的藍色 Btn_004、橘色 Btn_014、灰色 Btn_016 及原版圓形圖示，沿用水平切片與滑入／按下效果；不改變 16:9 與既有功能。Android 是原生觸控全螢幕頁面，不套用 Windows 視窗規則。
 
