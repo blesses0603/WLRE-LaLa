@@ -30,6 +30,10 @@ class LaLaDesktop(tk.Tk):
         if self._startup_resource_status not in ("not_checked", "failed", "transport_checked", "installed"):
             self._startup_resource_status = "not_checked"
         self._feature_windows = {}
+        # Temporary, non-authoritative display from a manual legacy trial.
+        # Never expose it through the trusted SessionStore or command gate.
+        self._trial_role_text = tk.StringVar(
+            master=self, value="角色：等待登入\\n夥伴：等待同步")
         self._configure_ttk()
         self._build()
 
@@ -197,8 +201,16 @@ class LaLaDesktop(tk.Tk):
                     "party": "隊伍：等待角色同步",
                     "efficiency": "經驗資料：等待首場紀錄",
                 }[feature_key]
-                self.text(card_body, detail, size=10, color=t.MUTED, anchor="nw",
-                          justify="left").pack(fill="both", expand=True, padx=10, pady=(6, 6))
+                if feature_key == "characters":
+                    tk.Label(card_body, textvariable=self._trial_role_text,
+                             font=(self._font, 10), fg=t.MUTED, bg=t.SURFACE,
+                             anchor="nw", justify="left",
+                             wraplength=330).pack(
+                                 fill="both", expand=True, padx=10, pady=(6, 6))
+                else:
+                    self.text(card_body, detail, size=10, color=t.MUTED,
+                              anchor="nw", justify="left").pack(
+                                  fill="both", expand=True, padx=10, pady=(6, 6))
 
     def _build_chat(self, parent):
         chat_panel = self._panel(parent, bg=t.SURFACE, radius=16, inset=7)
@@ -281,6 +293,19 @@ class LaLaDesktop(tk.Tk):
         self._events.insert("end", f"[預覽] {message}\n")
         self._events.see("end")
         self._events.configure(state="disabled")
+
+    def show_trial_role_preview(self, role):
+        """Display-only S3-1 trial evidence; never a trusted game session."""
+        if (not role.world_packet_observed or not role.initial_data_complete
+                or role.role_id is None):
+            self.clear_trial_role_preview()
+            return
+        self._trial_role_text.set(
+            f"試驗角色：{role.character_name}\\n"
+            f"場景 {role.scene}｜座標 {role.x}, {role.y}（未認證）")
+
+    def clear_trial_role_preview(self):
+        self._trial_role_text.set("角色：等待登入\\n夥伴：等待同步")
 
     def _show_all_features(self):
         window = self._feature_windows.get("_catalog")
