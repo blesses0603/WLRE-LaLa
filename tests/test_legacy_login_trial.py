@@ -534,3 +534,44 @@ class LegacyLoginTrialTests(unittest.TestCase):
         self.assertEqual(result.distinct_packet_types, 3)
         self.assertTrue(sockets[1].closed)
         self.assertNotIn("0000000000", repr(result))
+
+
+    def test_live_trial_populates_non_authoritative_feature_evidence(self):
+        # Real receive path, fake server: NO game commands, credentials or
+        # unvalidated content may become application state.
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        trial.select_role(1, keep_open=True)
+        sockets[1].incoming.append(
+            frame(8, 1, b"x" * 10)
+            + frame(8, 2, b"x" * 13)
+            + frame(6, 1, b"x" * 8)
+            + frame(8, 1, b"x" * 8)
+            + frame(39, 60, b"private-data" * 18)
+            + frame(39, 61, b"private")
+            + frame(1, 23)
+        )
+        ticks = [0.]
+        def clock():
+            ticks[0] += .2
+            return ticks[0]
+        trial._clock = clock
+        result = trial.observe_readonly(duration=1)
+        self.assertIsNotNone(result.feature_evidence)
+        evidence = result.feature_evidence
+        self.assertFalse(evidence.server_verified)
+        self.assertEqual(len(evidence.accepted), 27)
+        self.assertEqual(dict(evidence.accepted)["characters"], 1)
+        self.assertEqual(dict(evidence.accepted)["companions"], 1)
+        self.assertEqual(dict(evidence.accepted)["world"], 1)
+        self.assertEqual(dict(evidence.rejected_lengths)["characters"], 1)
+        self.assertEqual(dict(evidence.candidate_only)["guild"], 1)
+        self.assertEqual(dict(evidence.accepted)["guild"], 0)
+        self.assertNotIn("private-data", repr(evidence))
+        self.assertEqual(result.heartbeat_replies, 1)
+        self.assertTrue(sockets[1].closed)
