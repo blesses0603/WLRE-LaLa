@@ -351,3 +351,90 @@ class LegacyLoginTrialTests(unittest.TestCase):
             trial.select_role(1)
         self.assertEqual(len(sockets[1].sent), 2)  # login, select only
         self.assertTrue(sockets[1].closed)
+
+    def test_opt_in_readonly_observer_keeps_socket_until_bounded_expiry(self):
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake", password="fake",
+                           consent=True)
+        selected = trial.select_role(1, keep_open=True)
+        self.assertTrue(selected.ongoing_connection)
+        self.assertFalse(selected.official_identity_verified)
+        self.assertFalse(trial._stopped.is_set())
+        self.assertFalse(sockets[1].closed)
+        # Only the legacy heartbeat is legal during observation.
+        sockets[1].incoming.extend([frame(9, 9) + frame(1, 23)])
+        now = [0.]
+        def clock():
+            now[0] += .4
+            return now[0]
+        trial._clock = clock
+        summary = trial.observe_readonly(duration=1)
+        self.assertEqual(summary.packets_seen, 1)
+        self.assertEqual(summary.heartbeat_replies, 1)
+        self.assertFalse(summary.official_identity_verified)
+        self.assertTrue(sockets[1].closed)
+        outbound = [bytes(x ^ OLD_TX_XOR for x in raw)[4:]
+                    for raw in sockets[1].sent]
+        self.assertEqual(outbound[-1], b"\x3f\x05")
+        self.assertNotIn(b"\x06\x01", outbound)  # never walk
+        with self.assertRaises(LoginError):
+            trial.observe_readonly(duration=1)
+
+    def test_readonly_requires_explicit_selection_and_valid_duration(self):
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11)],
+        )
+        for duration in (0, 121, 1.0, True, -1):
+            with self.assertRaises(LoginError):
+                trial.observe_readonly(duration=duration)
+        trial.authenticate(line_id=101, account="fake", password="fake",
+                           consent=True)
+        with self.assertRaises(LoginError):
+            trial.observe_readonly(duration=1)
+        trial.select_role(1)  # default keeps the historical one-shot close
+        self.assertTrue(sockets[1].closed)
+        with self.assertRaises(LoginError):
+            trial.observe_readonly(duration=1)
+
+    def test_readonly_disconnection_prevents_future_heartbeats(self):
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake", password="fake",
+                           consent=True)
+        trial.select_role(1, keep_open=True)
+        before = len(sockets[1].sent)
+        trial.close()
+        sockets[1].incoming.append(frame(1, 23))
+        with self.assertRaises(LoginError):
+            trial.observe_readonly(duration=1)
+        self.assertEqual(len(sockets[1].sent), before)
+        self.assertTrue(sockets[1].closed)
+
+    def test_coalesced_packet_after_init_is_retained_for_observation(self):
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11)
+             + frame(9, 9) + frame(1, 23)],
+        )
+        trial.authenticate(line_id=101, account="fake", password="fake",
+                           consent=True)
+        trial.select_role(1, keep_open=True)
+        ticks = [0.]
+        def clock():
+            ticks[0] += .4
+            return ticks[0]
+        trial._clock = clock
+        result = trial.observe_readonly(duration=1)
+        self.assertEqual(result.packets_seen, 1)
+        self.assertEqual(result.heartbeat_replies, 1)
+        self.assertTrue(sockets[1].closed)
