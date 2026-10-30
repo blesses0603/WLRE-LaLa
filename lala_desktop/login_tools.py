@@ -170,12 +170,19 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                                if (main, sub) in sizes else "")
                             for main, sub, count in result.top_packet_types
                         )
+                        length_checks = "、".join(
+                            f"S{main}-{sub}={matching}/{seen}筆符合{expected}B"
+                            for main, sub, expected, seen, matching
+                            in result.fixed_length_checks
+                        )
                         state["last_diagnostic"] = (
                             f"唯讀觀測60秒：非心跳={result.packets_seen}；"
                             f"心跳回覆={result.heartbeat_replies}；"
                             f"類型數={result.distinct_packet_types}；"
                             f"前八類型={distribution or '無'}。"
-                            "僅封包編號、數量及長度範圍，不代表正式伺服器驗收。")
+                            + (f"舊版定長符合筆數={length_checks}。" if length_checks
+                               else "舊版定長符合筆數=無可檢查類型。")
+                            + "僅編號、次數及長度，不代表欄位語意或官方身分已驗證。")
                         top = "、".join(
                             f"S{main}-{sub}：{count} 筆"
                             for main, sub, count in result.top_packet_types
