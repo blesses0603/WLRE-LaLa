@@ -465,6 +465,9 @@ class LegacyLoginTrialTests(unittest.TestCase):
         self.assertEqual(result.top_packet_types, (
             (7, 1, 2), (9, 9, 2), (9, 1, 1),
         ))
+        self.assertEqual(result.top_packet_sizes, (
+            (7, 1, 0, 0), (9, 9, 0, 25), (9, 1, 0, 0),
+        ))
         self.assertNotIn("payload-should-never-leak", repr(result))
         self.assertTrue(sockets[1].closed)
 
@@ -492,4 +495,8 @@ class LegacyLoginTrialTests(unittest.TestCase):
         self.assertEqual(
             result.top_packet_types,
             tuple((main, 1, 1) for main in range(10, 18))
+        )
+        self.assertEqual(
+            result.top_packet_sizes,
+            tuple((main, 1, 0, 0) for main in range(10, 18))
         )
