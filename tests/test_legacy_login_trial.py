@@ -438,3 +438,58 @@ class LegacyLoginTrialTests(unittest.TestCase):
         self.assertEqual(result.packets_seen, 1)
         self.assertEqual(result.heartbeat_replies, 1)
         self.assertTrue(sockets[1].closed)
+
+    def test_readonly_packet_distribution_excludes_heartbeat_and_payload(self):
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        trial.select_role(1, keep_open=True)
+        sockets[1].incoming.extend([
+            frame(9, 9, b"payload-should-never-leak")
+            + frame(9, 9) + frame(7, 1) + frame(9, 1)
+            + frame(1, 23) + frame(7, 1),
+        ])
+        ticks = [0.]
+        def clock():
+            ticks[0] += .2
+            return ticks[0]
+        trial._clock = clock
+        result = trial.observe_readonly(duration=1)
+        self.assertEqual(result.packets_seen, 5)
+        self.assertEqual(result.heartbeat_replies, 1)
+        self.assertEqual(result.distinct_packet_types, 3)
+        self.assertEqual(result.top_packet_types, (
+            (7, 1, 2), (9, 9, 2), (9, 1, 1),
+        ))
+        self.assertNotIn("payload-should-never-leak", repr(result))
+        self.assertTrue(sockets[1].closed)
+
+    def test_readonly_packet_distribution_is_limited_to_eight_types(self):
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        trial.select_role(1, keep_open=True)
+        sockets[1].incoming.append(
+            b"".join(frame(main, 1) for main in range(10, 22))
+        )
+        ticks = [0.]
+        def clock():
+            ticks[0] += .2
+            return ticks[0]
+        trial._clock = clock
+        result = trial.observe_readonly(duration=1)
+        self.assertEqual(result.packets_seen, 12)
+        self.assertEqual(result.heartbeat_replies, 0)
+        self.assertEqual(result.distinct_packet_types, 12)
+        self.assertEqual(
+            result.top_packet_types,
+            tuple((main, 1, 1) for main in range(10, 18))
+        )
