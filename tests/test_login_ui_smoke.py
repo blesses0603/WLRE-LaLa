@@ -240,7 +240,8 @@ class LoginWindowTests(unittest.TestCase):
         fake.select_role.return_value = LegacyRoleTrialResult(
             1, True, False, True, 6789, "測試玩家", 110, 25, 47,
             ongoing_connection=True, init_acks_sent=True)
-        fake.observe_readonly.return_value = LegacyReadOnlyObservation(3, 1)
+        fake.observe_readonly.return_value = LegacyReadOnlyObservation(
+            3, 0, False, 2, ((7, 1, 2), (9, 9, 1)))
         with patch.object(login_tools, "verify_installed",
                           return_value={"resources_installed": True}), \
              patch.object(login_tools, "LegacyLoginTrial", return_value=fake):
@@ -295,6 +296,9 @@ class LoginWindowTests(unittest.TestCase):
                          for w in widgets if isinstance(w, tk.Label)
                          and w.cget("textvariable")]
                 self.assertTrue(any("唯讀觀測完成" in msg for msg in texts))
+                self.assertTrue(any("本次未收到 S1-23" in msg for msg in texts))
+                self.assertTrue(any("封包類型共 2 種" in msg for msg in texts))
+                self.assertTrue(any("S7-1：2 筆" in msg for msg in texts))
             finally:
                 root.destroy()
 
