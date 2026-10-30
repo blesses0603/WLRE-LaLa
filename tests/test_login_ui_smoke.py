@@ -312,6 +312,8 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertTrue(any("本次未收到 S1-23" in msg for msg in texts))
                 self.assertTrue(any("封包類型共 2 種" in msg for msg in texts))
                 self.assertTrue(any("S7-1：2 筆" in msg for msg in texts))
+                self.assertIn("試驗角色：測試玩家", root._trial_role_text.get())
+                self.assertIn("未認證", root._trial_role_text.get())
                 buttons["複製診斷"].invoke()
                 root.update()
                 report = root.clipboard_get()
@@ -326,6 +328,7 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertNotIn("測試玩家", report)
                 self.assertNotIn("fake", report)
                 buttons["中斷"].invoke()
+                self.assertIn("等待登入", root._trial_role_text.get())
                 buttons["複製診斷"].invoke()
                 self.assertTrue(any(
                     "尚無本次唯讀觀測診斷" in str(root.getvar(w.cget("textvariable")))
