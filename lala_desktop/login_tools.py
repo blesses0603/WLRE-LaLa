@@ -175,6 +175,32 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                             for main, sub, expected, seen, matching
                             in result.fixed_length_checks
                         )
+                        feature_summary = ""
+                        if result.feature_evidence is not None:
+                            observed = tuple(
+                                (name, count) for name, count
+                                in result.feature_evidence.accepted if count
+                            )
+                            invalid = tuple(
+                                (name, count) for name, count
+                                in result.feature_evidence.rejected_lengths if count
+                            )
+                            candidates = tuple(
+                                (name, count) for name, count
+                                in result.feature_evidence.candidate_only if count
+                            )
+                            parts = [
+                                "舊版尺寸吻合功能=" +
+                                ("、".join(f"{name}:{count}" for name, count in observed)
+                                 or "無"),
+                                "尺寸不符功能=" +
+                                ("、".join(f"{name}:{count}" for name, count in invalid)
+                                 or "無"),
+                                "未解碼候選=" +
+                                ("、".join(f"{name}:{count}" for name, count in candidates)
+                                 or "無"),
+                            ]
+                            feature_summary = "；".join(parts) + "。"
                         state["last_diagnostic"] = (
                             f"唯讀觀測60秒：非心跳={result.packets_seen}；"
                             f"心跳回覆={result.heartbeat_replies}；"
@@ -182,7 +208,8 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                             f"前八類型={distribution or '無'}。"
                             + (f"舊版定長符合筆數={length_checks}。" if length_checks
                                else "舊版定長符合筆數=無可檢查類型。")
-                            + "僅編號、次數及長度，不代表欄位語意或官方身分已驗證。")
+                            + feature_summary
+                            + "僅編號、次數及長度，功能資料未同步且官方身分未驗證。")
                         top = "、".join(
                             f"S{main}-{sub}：{count} 筆"
                             for main, sub, count in result.top_packet_types
