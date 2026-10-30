@@ -33,7 +33,7 @@ class LaLaDesktop(tk.Tk):
         # Temporary, non-authoritative display from a manual legacy trial.
         # Never expose it through the trusted SessionStore or command gate.
         self._trial_role_text = tk.StringVar(
-            master=self, value="角色：等待登入\\n夥伴：等待同步")
+            master=self, value="角色：等待登入\n夥伴：等待同步")
         self._configure_ttk()
         self._build()
 
@@ -301,11 +301,11 @@ class LaLaDesktop(tk.Tk):
             self.clear_trial_role_preview()
             return
         self._trial_role_text.set(
-            f"試驗角色：{role.character_name}\\n"
+            f"試驗角色：{role.character_name}\n"
             f"場景 {role.scene}｜座標 {role.x}, {role.y}（未認證）")
 
     def clear_trial_role_preview(self):
-        self._trial_role_text.set("角色：等待登入\\n夥伴：等待同步")
+        self._trial_role_text.set("角色：等待登入\n夥伴：等待同步")
 
     def _show_all_features(self):
         window = self._feature_windows.get("_catalog")
