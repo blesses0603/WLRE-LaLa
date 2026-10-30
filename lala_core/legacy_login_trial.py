@@ -62,6 +62,8 @@ class LegacyReadOnlyObservation:
     distinct_packet_types: int = 0
     # Top eight numeric S(main-sub) identifiers only; never raw payloads.
     top_packet_types: tuple[tuple[int, int, int], ...] = ()
+    # Numeric-only min/max payload bytes for those top eight IDs.
+    top_packet_sizes: tuple[tuple[int, int, int, int], ...] = ()
 
 
 
@@ -364,6 +366,7 @@ class LegacyLoginTrial:
             self._world_selected = False  # observation is single-use
         seen = 0
         packet_types = Counter()
+        packet_sizes = {}
         initial_heartbeats = self._heartbeats_replied
         try:
             for packet in self._wait_packets(
@@ -373,7 +376,11 @@ class LegacyLoginTrial:
                 # scene, coordinates or raw payload leaves this function.
                 # This is evidence of traffic, not a validated world schema.
                 seen += 1
-                packet_types[(packet.main, packet.sub)] += 1
+                key = packet.main, packet.sub
+                packet_types[key] += 1
+                size = len(packet.payload)
+                low, high = packet_sizes.get(key, (size, size))
+                packet_sizes[key] = min(low, size), max(high, size)
             top = tuple(
                 (main, sub, count)
                 for (main, sub), count in sorted(
@@ -385,6 +392,9 @@ class LegacyLoginTrial:
                 packets_seen=seen,
                 heartbeat_replies=self._heartbeats_replied - initial_heartbeats,
                 distinct_packet_types=len(packet_types),
-                top_packet_types=top)
+                top_packet_types=top,
+                top_packet_sizes=tuple(
+                    (main, sub, *packet_sizes[(main, sub)])
+                    for main, sub, _ in top))
         finally:
             self.close()
