@@ -27,6 +27,9 @@ MAX_TRIAL_PACKETS = 512
 MAX_ROLE_PACKETS = 4096
 MAX_ROLE_BYTES = 8 * 1024 * 1024
 MAX_OBSERVE_SECONDS = 120
+# Legacy WLRe_lala/wlre/network/protocol.py: only these two have
+# fixed, independently reviewable field widths. No payload is decoded here.
+LEGACY_FIXED_ATTRIBUTE_LENGTHS = {(8, 1): 10, (8, 2): 13}
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +67,9 @@ class LegacyReadOnlyObservation:
     top_packet_types: tuple[tuple[int, int, int], ...] = ()
     # Numeric-only min/max payload bytes for those top eight IDs.
     top_packet_sizes: tuple[tuple[int, int, int, int], ...] = ()
+    # (main, sub, expected_bytes, seen_count, matching_count).
+    # A size match alone is NOT proof that the payload schema is compatible.
+    fixed_length_checks: tuple[tuple[int, int, int, int, int], ...] = ()
 
 
 
@@ -367,6 +373,8 @@ class LegacyLoginTrial:
         seen = 0
         packet_types = Counter()
         packet_sizes = {}
+        fixed_length_seen = Counter()
+        fixed_length_matched = Counter()
         initial_heartbeats = self._heartbeats_replied
         try:
             for packet in self._wait_packets(
@@ -381,6 +389,11 @@ class LegacyLoginTrial:
                 size = len(packet.payload)
                 low, high = packet_sizes.get(key, (size, size))
                 packet_sizes[key] = min(low, size), max(high, size)
+                expected = LEGACY_FIXED_ATTRIBUTE_LENGTHS.get(key)
+                if expected is not None:
+                    fixed_length_seen[key] += 1
+                    if size == expected:
+                        fixed_length_matched[key] += 1
             top = tuple(
                 (main, sub, count)
                 for (main, sub), count in sorted(
@@ -395,6 +408,12 @@ class LegacyLoginTrial:
                 top_packet_types=top,
                 top_packet_sizes=tuple(
                     (main, sub, *packet_sizes[(main, sub)])
-                    for main, sub, _ in top))
+                    for main, sub, _ in top),
+                fixed_length_checks=tuple(
+                    (main, sub, expected, fixed_length_seen[(main, sub)],
+                     fixed_length_matched[(main, sub)])
+                    for (main, sub), expected in sorted(
+                        LEGACY_FIXED_ATTRIBUTE_LENGTHS.items())
+                    if fixed_length_seen[(main, sub)]))
         finally:
             self.close()
