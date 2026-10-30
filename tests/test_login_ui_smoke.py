@@ -241,7 +241,8 @@ class LoginWindowTests(unittest.TestCase):
             1, True, False, True, 6789, "測試玩家", 110, 25, 47,
             ongoing_connection=True, init_acks_sent=True)
         fake.observe_readonly.return_value = LegacyReadOnlyObservation(
-            3, 0, False, 2, ((7, 1, 2), (9, 9, 1)))
+            3, 0, False, 2, ((7, 1, 2), (9, 9, 1)),
+            ((7, 1, 8, 8), (9, 9, 3, 5)))
         with patch.object(login_tools, "verify_installed",
                           return_value={"resources_installed": True}), \
              patch.object(login_tools, "LegacyLoginTrial", return_value=fake):
@@ -263,6 +264,11 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertIn("唯讀觀測 60 秒", checkboxes[1].cget("text"))
                 self.assertEqual(root.getvar(checkboxes[1].cget("variable")), 0)
                 buttons = {w.label: w for w in widgets if getattr(w, "label", "")}
+                buttons["複製診斷"].invoke()
+                self.assertFalse(any(
+                    "已複製匿名封包診斷" in str(root.getvar(w.cget("textvariable")))
+                    for w in widgets if isinstance(w, tk.Label)
+                    and w.cget("textvariable")))
                 fields[0].insert(0, "fake")
                 fields[1].insert(0, "fake")
                 checkboxes[0].invoke()
@@ -299,6 +305,20 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertTrue(any("本次未收到 S1-23" in msg for msg in texts))
                 self.assertTrue(any("封包類型共 2 種" in msg for msg in texts))
                 self.assertTrue(any("S7-1：2 筆" in msg for msg in texts))
+                buttons["複製診斷"].invoke()
+                root.update()
+                report = root.clipboard_get()
+                self.assertIn("類型數=2", report)
+                self.assertIn("S7-1=2筆（8～8B）", report)
+                self.assertIn("S9-9=1筆（3～5B）", report)
+                self.assertNotIn("測試玩家", report)
+                self.assertNotIn("fake", report)
+                buttons["中斷"].invoke()
+                buttons["複製診斷"].invoke()
+                self.assertTrue(any(
+                    "尚無本次唯讀觀測診斷" in str(root.getvar(w.cget("textvariable")))
+                    for w in widgets if isinstance(w, tk.Label)
+                    and w.cget("textvariable")))
             finally:
                 root.destroy()
 
