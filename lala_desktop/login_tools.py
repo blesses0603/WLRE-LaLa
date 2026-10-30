@@ -87,7 +87,8 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
     actions.pack(fill="x", padx=24, pady=(4, 2))
     events = SimpleQueue()
     state = {"tcp": False, "login": False, "role": False,
-             "generation": 0, "client": None, "slots": (), "after": None}
+             "generation": 0, "client": None, "slots": (), "after": None,
+             "last_diagnostic": ""}
 
     def update():
         if not parent.winfo_exists():
@@ -155,7 +156,26 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                 elif kind == "observation":
                     state["role"] = False
                     state["client"] = None
+                    state["last_diagnostic"] = ""
                     if isinstance(result, LegacyReadOnlyObservation):
+                        # Clipboard data is numeric metadata only, no payload,
+                        # player, account, scene, position or server identity.
+                        sizes = {(main, sub): (low, high)
+                                 for main, sub, low, high
+                                 in result.top_packet_sizes}
+                        distribution = "、".join(
+                            f"S{main}-{sub}={count}筆"
+                            + (f"（{sizes[(main, sub)][0]}～"
+                               f"{sizes[(main, sub)][1]}B）"
+                               if (main, sub) in sizes else "")
+                            for main, sub, count in result.top_packet_types
+                        )
+                        state["last_diagnostic"] = (
+                            f"唯讀觀測60秒：非心跳={result.packets_seen}；"
+                            f"心跳回覆={result.heartbeat_replies}；"
+                            f"類型數={result.distinct_packet_types}；"
+                            f"前八類型={distribution or '無'}。"
+                            "僅封包編號、數量及長度範圍，不代表正式伺服器驗收。")
                         top = "、".join(
                             f"S{main}-{sub}：{count} 筆"
                             for main, sub, count in result.top_packet_types
@@ -237,6 +257,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
         state["generation"] += 1
         generation = state["generation"]
         state["client"], state["slots"] = client, ()
+        state["last_diagnostic"] = ""
         role_name.set("")
         role_info.set("角色資料：正在驗證，尚未取得。")
         role_picker.configure(state="disabled", values=())
@@ -267,6 +288,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
             state["client"].close()
             state["client"] = None
         state["slots"] = ()
+        state["last_diagnostic"] = ""
         coordinator.cancel()
         role_name.set("")
         role_info.set("角色資料：已中斷，清除先前的角色資訊。")
@@ -321,11 +343,26 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
 
         Thread(target=task, daemon=True, name="lala-role-trial").start()
 
+    def copy_diagnostic():
+        summary = state["last_diagnostic"]
+        if not summary:
+            status.set("尚無本次唯讀觀測診斷可複製。")
+            return
+        try:
+            parent.clipboard_clear()
+            parent.clipboard_append(summary)
+        except tk.TclError:
+            status.set("無法存取系統剪貼簿；請檢查視窗是否仍開啟。")
+            return
+        status.set("已複製匿名封包診斷（只有編號、次數及長度範圍）。")
+
     login_button = button_factory(actions, "登入", request_login)
     login_button.pack(side="left", padx=(0, 8))
     button_factory(actions, "中斷", disconnect).pack(side="left", padx=(0, 8))
     tcp_button = button_factory(actions, "測試 TCP", test_connection)
     tcp_button.pack(side="left", padx=(0, 8))
+    button_factory(actions, "複製診斷", copy_diagnostic).pack(
+        side="left", padx=(0, 8))
     button_factory(actions, "選擇角色", choose_role).pack(side="right")
 
     tk.Label(parent, textvariable=status, font=(font_name, 10),
