@@ -5,7 +5,7 @@ identity verification. Absolutely no traffic unless UI user opts in after
 reading the warning. Never log, store, retry or include credentials in errors.
 The result is *legacy protocol evidence*, not a production SessionStore login.
 """
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass
 from threading import RLock, Event
 import socket
@@ -59,6 +59,9 @@ class LegacyReadOnlyObservation:
     packets_seen: int
     heartbeat_replies: int
     official_identity_verified: bool = False
+    distinct_packet_types: int = 0
+    # Top eight numeric S(main-sub) identifiers only; never raw payloads.
+    top_packet_types: tuple[tuple[int, int, int], ...] = ()
 
 
 
@@ -360,16 +363,28 @@ class LegacyLoginTrial:
                 raise LoginError("尚未完成可觀測的舊版選角試驗")
             self._world_selected = False  # observation is single-use
         seen = 0
+        packet_types = Counter()
         initial_heartbeats = self._heartbeats_replied
         try:
             for packet in self._wait_packets(
                     connection, decoder, self._clock() + duration,
                     phase="觀測", normal_expiry=True):
-                # Consume packet identity only, never decode or store payloads.
-                # Unknown messages deliberately do not trigger outbound action.
+                # Numeric message IDs only: no content, account, character,
+                # scene, coordinates or raw payload leaves this function.
+                # This is evidence of traffic, not a validated world schema.
                 seen += 1
+                packet_types[(packet.main, packet.sub)] += 1
+            top = tuple(
+                (main, sub, count)
+                for (main, sub), count in sorted(
+                    packet_types.items(),
+                    key=lambda entry: (-entry[1], entry[0][0], entry[0][1])
+                )[:8]
+            )
             return LegacyReadOnlyObservation(
                 packets_seen=seen,
-                heartbeat_replies=self._heartbeats_replied - initial_heartbeats)
+                heartbeat_replies=self._heartbeats_replied - initial_heartbeats,
+                distinct_packet_types=len(packet_types),
+                top_packet_types=top)
         finally:
             self.close()
