@@ -11,6 +11,7 @@ from kivy.core.window import Window
 from kivy.utils import get_color_from_hex
 
 from lala_core.features import BY_KEY, FEATURES
+from lala_core.feature_progress import PROGRESS
 from . import theme as t
 from .version import ANDROID_VERSION
 
@@ -151,7 +152,12 @@ class LaLaAndroidPreview(App):
                 "全部功能（27）", self.show_all, height=52))
         else:
             self._card(feature.title, feature.description)
-            self._card("功能狀態", "P0 離線介面預覽：尚未接入任何遊戲功能")
+            progress = PROGRESS[key]
+            # Shared core status, not a claim that Android has a network adapter.
+            capability = progress.local_capability
+            short = capability[:47] + ("…" if len(capability) > 47 else "")
+            self._card("共用核心進度", short)
+            self._card("Android 連線狀態", "尚未驗收｜不會傳送遊戲指令")
             self.main_column.add_widget(classic_button(
                 "← 返回主頁", lambda: self.select("dashboard")))
             self.main_column.add_widget(classic_button("全部功能", self.show_all))
