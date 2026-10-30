@@ -226,6 +226,78 @@ class LoginWindowTests(unittest.TestCase):
             finally:
                 root.destroy()
 
+    def test_manual_readonly_observation_is_opt_in_and_stays_untrusted(self):
+        from lala_desktop.app import LaLaDesktop
+        from lala_desktop import login_tools
+        from lala_core.legacy_login_trial import (
+            LegacyTrialResult, LegacyRoleTrialResult, LegacyReadOnlyObservation,
+        )
+        from unittest.mock import Mock
+        import time
+
+        fake = Mock()
+        fake.authenticate.return_value = LegacyTrialResult(True, True, (1,))
+        fake.select_role.return_value = LegacyRoleTrialResult(
+            1, True, False, True, 6789, "測試玩家", 110, 25, 47,
+            ongoing_connection=True, init_acks_sent=True)
+        fake.observe_readonly.return_value = LegacyReadOnlyObservation(3, 1)
+        with patch.object(login_tools, "verify_installed",
+                          return_value={"resources_installed": True}), \
+             patch.object(login_tools, "LegacyLoginTrial", return_value=fake):
+            root = LaLaDesktop()
+            try:
+                root.open_feature("accounts")
+                root.update()
+                dialog = root._feature_windows["accounts"]
+
+                def descendants(widget):
+                    for child in widget.winfo_children():
+                        yield child
+                        yield from descendants(child)
+
+                widgets = list(descendants(dialog))
+                fields = [w for w in widgets if type(w) is tk.Entry]
+                checkboxes = [w for w in widgets if type(w) is tk.Checkbutton]
+                self.assertEqual(len(checkboxes), 2)
+                self.assertIn("唯讀觀測 60 秒", checkboxes[1].cget("text"))
+                self.assertEqual(root.getvar(checkboxes[1].cget("variable")), 0)
+                buttons = {w.label: w for w in widgets if getattr(w, "label", "")}
+                fields[0].insert(0, "fake")
+                fields[1].insert(0, "fake")
+                checkboxes[0].invoke()
+                buttons["登入"].invoke()
+                for _ in range(80):
+                    root.update()
+                    if any("等待選角" in str(root.getvar(w.cget("textvariable")))
+                           for w in widgets if isinstance(w, tk.Label)
+                           and w.cget("textvariable")):
+                        break
+                    time.sleep(.015)
+                checkboxes[1].invoke()
+                buttons["選擇角色"].invoke()
+                for _ in range(80):
+                    root.update()
+                    if fake.observe_readonly.called:
+                        break
+                    time.sleep(.015)
+                fake.select_role.assert_called_once_with(1, keep_open=True)
+                fake.observe_readonly.assert_called_once_with(duration=60)
+                self.assertEqual(root.getvar(checkboxes[1].cget("variable")), 0)
+                self.assertFalse(dialog._lala_login_coordinator.session.view().connected)
+                for _ in range(80):
+                    root.update()
+                    if any("唯讀觀測完成" in str(root.getvar(w.cget("textvariable")))
+                           for w in widgets if isinstance(w, tk.Label)
+                           and w.cget("textvariable")):
+                        break
+                    time.sleep(.015)
+                texts = [str(root.getvar(w.cget("textvariable")))
+                         for w in widgets if isinstance(w, tk.Label)
+                         and w.cget("textvariable")]
+                self.assertTrue(any("唯讀觀測完成" in msg for msg in texts))
+            finally:
+                root.destroy()
+
     def test_main_header_disconnect_uses_login_controller(self):
         from lala_desktop.app import LaLaDesktop
         root = LaLaDesktop()
