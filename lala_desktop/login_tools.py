@@ -156,10 +156,21 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                     state["role"] = False
                     state["client"] = None
                     if isinstance(result, LegacyReadOnlyObservation):
+                        top = "、".join(
+                            f"S{main}-{sub}：{count} 筆"
+                            for main, sub, count in result.top_packet_types
+                        ) or "未收到非心跳封包"
+                        heartbeat_note = (
+                            "本次未收到 S1-23 心跳要求，不能視為心跳失敗。"
+                            if result.heartbeat_replies == 0 else
+                            f"已回覆 {result.heartbeat_replies} 次 S1-23 心跳。"
+                        )
                         status.set(
-                            f"60 秒唯讀觀測完成：觀察到 {result.packets_seen} 個"
-                            f"非心跳封包、回覆 {result.heartbeat_replies} 次心跳；"
-                            "試驗連線已關閉。仍不代表正式登入。")
+                            f"60 秒唯讀觀測完成：收到 {result.packets_seen} 個"
+                            f"非心跳封包；{heartbeat_note}"
+                            "試驗連線已關閉，尚非正式登入。"
+                            f"\n封包類型共 {result.distinct_packet_types} 種；"
+                            f"最多顯示前 8 種（僅 ID）：{top}。")
                     else:
                         status.set("限時唯讀觀測中止並關閉連線：" + message)
         except Empty:
