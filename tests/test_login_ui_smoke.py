@@ -242,7 +242,8 @@ class LoginWindowTests(unittest.TestCase):
             ongoing_connection=True, init_acks_sent=True)
         fake.observe_readonly.return_value = LegacyReadOnlyObservation(
             3, 0, False, 2, ((7, 1, 2), (9, 9, 1)),
-            ((7, 1, 8, 8), (9, 9, 3, 5)))
+            ((7, 1, 8, 8), (9, 9, 3, 5)),
+            ((8, 1, 10, 16, 16), (8, 2, 13, 17, 17)))
         with patch.object(login_tools, "verify_installed",
                           return_value={"resources_installed": True}), \
              patch.object(login_tools, "LegacyLoginTrial", return_value=fake):
@@ -311,6 +312,8 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertIn("類型數=2", report)
                 self.assertIn("S7-1=2筆（8～8B）", report)
                 self.assertIn("S9-9=1筆（3～5B）", report)
+                self.assertIn("S8-1=16/16筆符合10B", report)
+                self.assertIn("S8-2=17/17筆符合13B", report)
                 self.assertNotIn("測試玩家", report)
                 self.assertNotIn("fake", report)
                 buttons["中斷"].invoke()
