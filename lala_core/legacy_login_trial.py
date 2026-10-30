@@ -19,6 +19,7 @@ from .login_wire import (
 from .server_probe import LINE_SNAPSHOT
 from .wire import WireDecodeError
 from .legacy_world import parse_legacy_world_player
+from .feature_wire_bridge import FeatureWireBridge, FeatureWireEvidence
 
 
 MAX_TRIAL_PACKETS = 512
@@ -70,6 +71,8 @@ class LegacyReadOnlyObservation:
     # (main, sub, expected_bytes, seen_count, matching_count).
     # A size match alone is NOT proof that the payload schema is compatible.
     fixed_length_checks: tuple[tuple[int, int, int, int, int], ...] = ()
+    # 27-feature evidence is a strictly anonymous, NOT server-verified report.
+    feature_evidence: FeatureWireEvidence | None = None
 
 
 
@@ -373,6 +376,7 @@ class LegacyLoginTrial:
         seen = 0
         packet_types = Counter()
         packet_sizes = {}
+        bridge = FeatureWireBridge(profile="legacy-1262")
         fixed_length_seen = Counter()
         fixed_length_matched = Counter()
         initial_heartbeats = self._heartbeats_replied
@@ -386,6 +390,7 @@ class LegacyLoginTrial:
                 seen += 1
                 key = packet.main, packet.sub
                 packet_types[key] += 1
+                bridge.observe(packet)
                 size = len(packet.payload)
                 low, high = packet_sizes.get(key, (size, size))
                 packet_sizes[key] = min(low, size), max(high, size)
@@ -414,6 +419,7 @@ class LegacyLoginTrial:
                      fixed_length_matched[(main, sub)])
                     for (main, sub), expected in sorted(
                         LEGACY_FIXED_ATTRIBUTE_LENGTHS.items())
-                    if fixed_length_seen[(main, sub)]))
+                    if fixed_length_seen[(main, sub)]),
+                feature_evidence=bridge.report())
         finally:
             self.close()
