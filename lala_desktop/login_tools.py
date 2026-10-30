@@ -13,6 +13,7 @@ from threading import Thread
 from lala_core.login import LoginCoordinator, LoginError, validate_credentials
 from lala_core.legacy_login_trial import (
     LegacyLoginTrial, LegacyTrialResult, LegacyRoleTrialResult,
+    LegacyReadOnlyObservation,
 )
 from lala_core.server_probe import LINE_SNAPSHOT, probe_line
 from lala_core.resource_bootstrap import verify_installed, InstallError
@@ -66,12 +67,21 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
     role_picker.grid(row=2, column=1, columnspan=3, sticky="ew", pady=4)
 
     allow_legacy = tk.BooleanVar(master=parent, value=False)
+    readonly_observe = tk.BooleanVar(master=parent, value=False)
+    consent_row = tk.Frame(parent, bg=t.PANEL)
+    consent_row.pack(fill="x", padx=24, pady=(0, 2))
     tk.Checkbutton(
-        parent, variable=allow_legacy,
+        consent_row, variable=allow_legacy,
         text="我了解舊版 XOR 非加密，並同意本次向舊版分流 IP 傳送帳密",
         bg=t.PANEL, fg=t.WARN, activebackground=t.PANEL,
         activeforeground=t.TEXT, selectcolor=t.FIELD,
-        font=(font_name, 9), anchor="w").pack(fill="x", padx=24, pady=(0, 2))
+        font=(font_name, 9), anchor="w").pack(side="left")
+    tk.Checkbutton(
+        consent_row, variable=readonly_observe,
+        text="選角後唯讀觀測 60 秒",
+        bg=t.PANEL, fg=t.CYAN, activebackground=t.PANEL,
+        activeforeground=t.TEXT, selectcolor=t.FIELD,
+        font=(font_name, 9), anchor="w").pack(side="right")
 
     actions = tk.Frame(parent, bg=t.PANEL)
     actions.pack(fill="x", padx=24, pady=(4, 2))
@@ -111,9 +121,12 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                         role_info.set("角色資料：未取得，舊版登入未成功。")
                         status.set(message)
                 elif kind == "role":
-                    state["role"] = False
+                    state["role"] = bool(
+                        isinstance(result, LegacyRoleTrialResult)
+                        and result.ongoing_connection)
                     if isinstance(result, LegacyRoleTrialResult):
-                        state["client"] = None  # the test socket was closed
+                        if not result.ongoing_connection:
+                            state["client"] = None
                         state["slots"] = ()
                         role_picker.configure(values=(), state="disabled")
                         role_info.set(
@@ -123,9 +136,13 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                             "已依舊版送出 C12-1／C3-2 初始化回覆；"
                             if result.init_acks_sent else
                             "尚未證實已送出世界初始化回覆；")
+                        connection_note = (
+                            "正在進行 60 秒唯讀觀測；只允許舊版心跳回覆。"
+                            if result.ongoing_connection else
+                            "試驗連線已關閉。")
                         status.set("S3-1 角色資料完整解析，S1-11 初始化確認已收到；"
-                                   + acknowledgement +
-                                   "試驗連線已關閉。仍非長連線正式角色同步。")
+                                   + acknowledgement + connection_note
+                                   + "仍非可信正式服會話。")
                     else:
                         # select_role() closes the trial socket even on failure.
                         # Do not leave stale slots selectable as if still online.
@@ -135,6 +152,16 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                         role_picker.configure(values=(), state="disabled")
                         role_info.set("角色資料：未完成，請查看上方訊息。")
                         status.set(message)
+                elif kind == "observation":
+                    state["role"] = False
+                    state["client"] = None
+                    if isinstance(result, LegacyReadOnlyObservation):
+                        status.set(
+                            f"60 秒唯讀觀測完成：觀察到 {result.packets_seen} 個"
+                            f"非心跳封包、回覆 {result.heartbeat_replies} 次心跳；"
+                            "試驗連線已關閉。仍不代表正式登入。")
+                    else:
+                        status.set("限時唯讀觀測中止並關閉連線：" + message)
         except Empty:
             pass
         state["after"] = parent.after(100, update)
@@ -235,6 +262,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
         role_picker.configure(state="disabled", values=())
         password.delete(0, "end")
         allow_legacy.set(False)
+        readonly_observe.set(False)
         status.set("已關閉試驗連線並清除角色／會話狀態。")
 
     parent.winfo_toplevel()._lala_login_disconnect = disconnect
@@ -251,19 +279,34 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
         if client is None or slot not in state["slots"]:
             status.set("沒有有效的舊版登入連線，無法送出角色選擇")
             return
+        observe = readonly_observe.get()
+        readonly_observe.set(False)  # explicit per-role opt-in
         state["role"] = True
         generation = state["generation"]
         status.set("正在執行舊版選角試驗；不會啟動自動操作。")
 
         def task():
             try:
-                result = client.select_role(slot)
-                message = ""
+                # Preserve the original 1-argument call when observation is off.
+                result = (client.select_role(slot, keep_open=True) if observe
+                          else client.select_role(slot))
             except LoginError as error:
-                result, message = None, str(error)
+                events.put(("role", generation, None, str(error)))
+                return
             except Exception:
-                result, message = None, "選角試驗未完成"
-            events.put(("role", generation, result, message))
+                events.put(("role", generation, None, "選角試驗未完成"))
+                return
+            events.put(("role", generation, result, ""))
+            if observe and result.ongoing_connection:
+                try:
+                    summary = client.observe_readonly(duration=60)
+                    events.put(("observation", generation, summary, ""))
+                except LoginError as error:
+                    events.put(("observation", generation, None, str(error)))
+                except Exception:
+                    client.close()
+                    events.put(("observation", generation, None,
+                                "試驗已停止（不顯示私有封包或例外內容）"))
 
         Thread(target=task, daemon=True, name="lala-role-trial").start()
 
