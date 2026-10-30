@@ -25,8 +25,12 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
     root = parent.winfo_toplevel().master
 
     def clear_main_trial_preview():
-        if root is not None and root.winfo_exists():
-            root.clear_trial_role_preview()
+        try:
+            if root is not None and root.winfo_exists():
+                root.clear_trial_role_preview()
+        except tk.TclError:
+            # This is also called during Tk's cascading root destruction.
+            pass
     parent._lala_login_coordinator = coordinator
     parent.winfo_toplevel()._lala_login_coordinator = coordinator
     status = tk.StringVar(master=parent, value="尚未登入。舊版分流可手動試驗，非正式服驗收。")
