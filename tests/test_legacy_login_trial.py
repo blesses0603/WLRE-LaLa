@@ -500,3 +500,37 @@ class LegacyLoginTrialTests(unittest.TestCase):
             result.top_packet_sizes,
             tuple((main, 1, 0, 0) for main in range(10, 18))
         )
+
+
+    def test_readonly_s8_fixed_length_contract_records_mismatch_without_decoding(self):
+        # Legacy protocol: S8-1 = 10B, S8-2 = 13B.
+        # An incorrect size must not be decoded, persisted, or disconnect
+        # an otherwise valid bounded observer.
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        trial.select_role(1, keep_open=True)
+        sockets[1].incoming.append(
+            frame(8, 1, b"0" * 10)
+            + frame(8, 1, b"0" * 9)
+            + frame(8, 2, b"1" * 13)
+            + frame(8, 2, b"1" * 12)
+            + frame(39, 60, b"2" * 178)
+        )
+        ticks = [0.]
+        def clock():
+            ticks[0] += .2
+            return ticks[0]
+        trial._clock = clock
+        result = trial.observe_readonly(duration=1)
+        self.assertEqual(result.packets_seen, 5)
+        self.assertEqual(result.fixed_length_checks, (
+            (8, 1, 10, 2, 1), (8, 2, 13, 2, 1),
+        ))
+        self.assertEqual(result.distinct_packet_types, 3)
+        self.assertTrue(sockets[1].closed)
+        self.assertNotIn("0000000000", repr(result))
