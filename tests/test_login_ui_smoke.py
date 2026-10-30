@@ -227,6 +227,8 @@ class LoginWindowTests(unittest.TestCase):
                 root.destroy()
 
     def test_manual_readonly_observation_is_opt_in_and_stays_untrusted(self):
+        from lala_core.feature_wire_bridge import FeatureWireBridge
+        from lala_core.wire import ObservedPacket
         from lala_desktop.app import LaLaDesktop
         from lala_desktop import login_tools
         from lala_core.legacy_login_trial import (
@@ -240,10 +242,14 @@ class LoginWindowTests(unittest.TestCase):
         fake.select_role.return_value = LegacyRoleTrialResult(
             1, True, False, True, 6789, "測試玩家", 110, 25, 47,
             ongoing_connection=True, init_acks_sent=True)
+        bridge = FeatureWireBridge(profile="legacy-1262")
+        bridge.observe(ObservedPacket(8, 1, b"0" * 10))
+        bridge.observe(ObservedPacket(39, 60, b"secret-not-retained"))
         fake.observe_readonly.return_value = LegacyReadOnlyObservation(
             3, 0, False, 2, ((7, 1, 2), (9, 9, 1)),
             ((7, 1, 8, 8), (9, 9, 3, 5)),
-            ((8, 1, 10, 16, 16), (8, 2, 13, 17, 17)))
+            ((8, 1, 10, 16, 16), (8, 2, 13, 17, 17)),
+            bridge.report())
         with patch.object(login_tools, "verify_installed",
                           return_value={"resources_installed": True}), \
              patch.object(login_tools, "LegacyLoginTrial", return_value=fake):
@@ -314,6 +320,9 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertIn("S9-9=1筆（3～5B）", report)
                 self.assertIn("S8-1=16/16筆符合10B", report)
                 self.assertIn("S8-2=17/17筆符合13B", report)
+                self.assertIn("舊版尺寸吻合功能=characters:1", report)
+                self.assertIn("未解碼候選=guild:1", report)
+                self.assertNotIn("secret-not-retained", report)
                 self.assertNotIn("測試玩家", report)
                 self.assertNotIn("fake", report)
                 buttons["中斷"].invoke()
