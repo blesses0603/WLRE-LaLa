@@ -22,6 +22,11 @@ from . import theme as t
 
 def build_login_tool(parent, *, font_name, button_factory, adapter=None):
     coordinator = LoginCoordinator(adapter=adapter)
+    root = parent.winfo_toplevel().master
+
+    def clear_main_trial_preview():
+        if root is not None and root.winfo_exists():
+            root.clear_trial_role_preview()
     parent._lala_login_coordinator = coordinator
     parent.winfo_toplevel()._lala_login_coordinator = coordinator
     status = tk.StringVar(master=parent, value="尚未登入。舊版分流可手動試驗，非正式服驗收。")
@@ -130,6 +135,8 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                             state["client"] = None
                         state["slots"] = ()
                         role_picker.configure(values=(), state="disabled")
+                        if root is not None and root.winfo_exists():
+                            root.show_trial_role_preview(result)
                         role_info.set(
                             f"已解析角色：{result.character_name}（角色 ID {result.role_id}）"
                             f"｜場景 {result.scene}｜座標 {result.x}, {result.y}。")
@@ -149,6 +156,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                         # Do not leave stale slots selectable as if still online.
                         state["client"] = None
                         state["slots"] = ()
+                        clear_main_trial_preview()
                         role_name.set("")
                         role_picker.configure(values=(), state="disabled")
                         role_info.set("角色資料：未完成，請查看上方訊息。")
@@ -288,6 +296,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
         if state["client"] is not None:
             state["client"].close()
         client = LegacyLoginTrial()
+        clear_main_trial_preview()
         state["generation"] += 1
         generation = state["generation"]
         state["client"], state["slots"] = client, ()
@@ -323,6 +332,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
             state["client"] = None
         state["slots"] = ()
         state["last_diagnostic"] = ""
+        clear_main_trial_preview()
         coordinator.cancel()
         role_name.set("")
         role_info.set("角色資料：已中斷，清除先前的角色資訊。")
@@ -332,7 +342,25 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
         readonly_observe.set(False)
         status.set("已關閉試驗連線並清除角色／會話狀態。")
 
-    parent.winfo_toplevel()._lala_login_disconnect = disconnect
+    dialog = parent.winfo_toplevel()
+    dialog._lala_login_disconnect = disconnect
+
+    def close_dialog_cleanup(event):
+        if event.widget is not dialog:
+            return
+        # Tk widgets are disappearing: close only sockets, reset generation,
+        # and remove untrusted preview without touching destroyed form fields.
+        state["generation"] += 1
+        client = state["client"]
+        state["client"] = None
+        state["slots"] = ()
+        state["last_diagnostic"] = ""
+        if client is not None:
+            client.close()
+        coordinator.cancel()
+        clear_main_trial_preview()
+
+    dialog.bind("<Destroy>", close_dialog_cleanup, add="+")
 
     def choose_role():
         try:
