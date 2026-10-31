@@ -1,5 +1,18 @@
 # WLRe-LaLa — 全新 LaLa（P1 功能服務開發中）
 
+## P1 第二批：舊版位置封包實際收包橋接（2026-11-01）
+
+已依據舊版 `WLRe_lala/wlre/network/protocol.py` 的 `position_snapshot` 與新版 `observed_events.py`，補上**可在現有手動 60 秒唯讀觀測內使用**的 `LegacyPositionProbe`。這是下一版正式收包 Adapter 之前必要的實際事件證據，但還不是獨立驗證的正式 Adapter：
+
+- 只檢查 `S7-1`、`S12-1`（共同前 10B 為 `role_id:u32, scene:u16, x:u16, y:u16`）；允許舊版既有 Reader 明確消耗的尾部擴充，但**不賦予任何擴充欄位語意**。
+- 選角收到完整的 `S3-1` + `S1-11` 後，先保存**僅記憶體內**的當次試驗角色 ID 與初始位置；60 秒觀測中只有 `role_id` 與選角一致的事件才能改變暫存位置。其他角色、截斷、無效 role_id 的事件只計數，未知封包不參與位置推算。
+- 結果顯示「本人位置事件／變化／重複、他人事件、格式無效」匿名數量；主控台在收到本人位置事件後可顯示**末次觀測的場景、座標，明確標註試驗已結束／未認證**。手動「複製診斷」只包含封包編號、長度及上述筆數，**不含位置、角色名稱或 role_id**。試驗 Socket 與暫存角色資料會在觀測完畢清除，按中斷或重新登入會清除 UI 預覽。
+- 舊版此事件**沒有已核對的伺服器 revision／完整順序保證**，所以 `LegacyPositionEvidence.authoritative=False`、`sequence_verified=False`。**禁止**拿本地累計數當成 `WorldSync` 的可信 revision，或以它解鎖正式 `SessionStore`／移動／戰鬥等指令。
+- 新增 `tests/test_legacy_position_probe.py` 與 Fake Socket 收包、登入 UI 測試，包括本人 ID 篩選、重複位置、他人事件、截斷或無效事件、禁止 Payload 洩漏、末次非權威座標顯示，以及剪貼簿不包含座標。全部僅是模擬測試，**新版在 Windows 上的真實 S7-1／S12-1 接收仍須獨立實機驗收**。
+
+下一個必要步驟是用有可獨立認證端點的正式 Adapter，核對是否存在真實的世界事件 sequence、丟失事件後如何取得完整權威快照，才能安全連接 `WorldSync`。只看見 60 秒收包正常，仍不足以聲稱已完成長連線與角色同步。
+
+
 ## P1 第一階段：可信連線生命週期與角色快照基礎（2026-10-31）
 
 本次在原有 `LoginCoordinator` 與 `SessionStore` 之間加入 `lala_core/world_sync.py` 的 **`WorldSync`**，讓未來經審核的正式服 Adapter 有明確、安全的世界事件生命週期；**沒有聲稱現有舊版 XOR 試驗已成為可信登入**。
