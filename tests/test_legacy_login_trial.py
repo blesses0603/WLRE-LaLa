@@ -575,3 +575,43 @@ class LegacyLoginTrialTests(unittest.TestCase):
         self.assertNotIn("private-data", repr(evidence))
         self.assertEqual(result.heartbeat_replies, 1)
         self.assertTrue(sockets[1].closed)
+
+
+    def test_live_position_stream_filters_selected_role_and_stays_untrusted(self):
+        trial, sockets, _ = self.setup_adapter(
+            [frame(63, 7, b"\0\0")],
+            [frame(63, 7, b"\0\x02") + frame(63, 1, role(1)),
+             frame(3, 1, world_player()) + frame(1, 11)],
+        )
+        trial.authenticate(line_id=101, account="fake",
+                           password="fake", consent=True)
+        trial.select_role(1, keep_open=True)
+        original = struct.pack("<IHHH", 654321, 120, 30, 40)
+        changed = struct.pack("<IHHH", 654321, 121, 33, 44)
+        other = struct.pack("<IHHH", 777, 333, 3, 3)
+        sockets[1].incoming.append(
+            frame(7, 1, original)
+            + frame(12, 1, changed + b"\x01")
+            + frame(7, 1, other)
+            + frame(7, 1, b"bad")
+            + frame(39, 61, b"private")  # cannot become a position
+        )
+        ticks = [0.]
+        def clock():
+            ticks[0] += .2
+            return ticks[0]
+        trial._clock = clock
+        result = trial.observe_readonly(duration=1)
+        evidence = result.position_evidence
+        self.assertIsNotNone(evidence)
+        self.assertFalse(evidence.authoritative)
+        self.assertFalse(evidence.sequence_verified)
+        self.assertEqual((evidence.own_messages, evidence.changed_messages,
+                          evidence.repeated_messages), (2, 1, 1))
+        self.assertEqual((evidence.other_role_messages,
+                          evidence.invalid_messages), (1, 1))
+        self.assertEqual((evidence.scene, evidence.x, evidence.y),
+                         (121, 33, 44))
+        self.assertEqual(result.packets_seen, 5)
+        self.assertTrue(sockets[1].closed)
+        self.assertNotIn("private", repr(evidence))
