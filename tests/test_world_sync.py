@@ -216,3 +216,20 @@ if __name__ == "__main__":
         for limit in (0, 61, True, "30"):
             with self.subTest(value=limit), self.assertRaises(ValueError):
                 WorldSync(self.store, bootstrap_timeout=limit)
+
+    def test_late_snapshot_is_rejected_even_without_periodic_tick(self):
+        self.attach()
+        self.now[0] += 31
+        self.assertFalse(self.engine.full_snapshot(self.position(0)))
+        self.assertEqual(self.engine.view().phase, WorldPhase.RESYNC_REQUIRED)
+        self.assertFalse(self.store.view().connected)
+
+    def test_late_heartbeat_cannot_resurrect_timed_out_world(self):
+        self.attach()
+        self.engine.full_snapshot(self.position(0))
+        self.now[0] += 31
+        self.assertFalse(self.engine.verified_activity(
+            generation=self.generation, protocol_verified=True,
+            endpoint_verified=True))
+        self.assertFalse(self.store.view().connected)
+        self.assertFalse(self.engine.position(self.position(1)))
