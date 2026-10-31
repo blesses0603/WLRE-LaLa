@@ -1,14 +1,19 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 rem LaLa Windows launcher. Automatically locate a compatible Python via "py" or PATH.
-rem Double click to launch. CI: run_lala.bat --check [--py-only].
+rem Double click: check Python/Pillow, parse official Manifests, install LaLa feature Bundles only, then open.
+rem CI: --check skips network and GUI. Diagnostic: --diagnose keeps network result visible.
 
 cd /d "%~dp0"
 if errorlevel 1 goto :path_error
 
 set "CHECK_ONLY=0"
+set "DIAGNOSE_ONLY=0"
+set "PROBE_ONLY=0"
 set "PY_ONLY=0"
 if /I "%~1"=="--check" set "CHECK_ONLY=1"
+if /I "%~1"=="--diagnose" set "DIAGNOSE_ONLY=1"
+if /I "%~1"=="--probe-server" set "PROBE_ONLY=1"
 if /I "%~2"=="--py-only" set "PY_ONLY=1"
 set "VENV_DIR=%CD%\.venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
@@ -49,7 +54,50 @@ if "%CHECK_ONLY%"=="1" (
     exit /b 0
 )
 
-echo [LaLa] Starting LaLa desktop UI...
+if "%PROBE_ONLY%"=="1" (
+    echo [LaLa] One-time TCP probe using legacy server-list snapshot; no login packets.
+    "%VENV_PY%" -m lala_core.server_probe --online --line 101 --timeout 3 --json
+    if errorlevel 1 (
+        echo [LaLa] TCP NOT ESTABLISHED. This does not prove the game server is offline.
+        pause
+        exit /b 1
+    )
+    echo [LaLa] TCP established; gameplay protocol and authentication NOT verified.
+    pause
+    exit /b 0
+)
+
+rem Diagnostic mode checks manifests but never downloads game resources or opens GUI.
+if "%DIAGNOSE_ONLY%"=="1" (
+    echo [LaLa] Diagnosing official versions and two Manifests...
+    "%VENV_PY%" -m lala_core.resource_inspector --online --parse-manifests --json --timeout 10
+    if errorlevel 1 (
+        echo [LaLa] Diagnostic mode: no GUI opened. Copy only the error message above.
+        pause
+        exit /b 1
+    )
+    echo [LaLa] Diagnostic mode complete. Login remains disabled.
+    pause
+    exit /b 0
+)
+
+rem MANDATORY: verify two Manifests and install only the reviewed LaLa feature Bundles
+rem into the user's private LaLa cache. Any failure blocks GUI entry.
+set "LALA_STARTUP_RESOURCE_STATUS=not_checked"
+echo [LaLa] Checking official indexes and installing missing game resources...
+"%VENV_PY%" -m lala_core.resource_bootstrap --online --install --timeout 20
+if errorlevel 1 goto :resource_install_error
+set "LALA_STARTUP_RESOURCE_STATUS=installed"
+echo [LaLa] Official resource install verified. Starting LaLa desktop UI...
+rem Launch through Python's subprocess.Popen so the success code reflects
+rem process creation, NOT the previous failed CDN preflight ERRORLEVEL.
+rem pythonw has no console; the GUI inherits LALA_STARTUP_RESOURCE_STATUS.
+if exist "%VENV_DIR%\Scripts\pythonw.exe" (
+    "%VENV_PY%" -m lala_desktop.launcher
+    if errorlevel 1 goto :launch_error
+    exit /b 0
+)
+rem Fallback for unusual Python distributions without pythonw.exe.
 "%VENV_PY%" -m lala_desktop
 if errorlevel 1 goto :launch_error
 exit /b 0
@@ -132,6 +180,12 @@ goto :failed
 :install_error
 echo [LaLa] ERROR: Unable to install Pillow.
 echo [LaLa] Check network access or Python compatibility.
+goto :failed
+
+:resource_install_error
+echo [LaLa] ERROR: Official resources are missing or invalid.
+echo [LaLa] LaLa remains CLOSED until required resources are installed.
+echo [LaLa] Check free disk space, network access, or use --diagnose.
 goto :failed
 
 :launch_error

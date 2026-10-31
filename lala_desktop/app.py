@@ -1,5 +1,6 @@
 """LaLa P0 經典 UI：承襲舊版版面與操作節奏，所有畫面皆為離線預覽。"""
 import tkinter as tk
+import os
 from tkinter import font as tkfont, ttk
 
 from lala_core.features import BY_KEY, FEATURES
@@ -10,6 +11,9 @@ from .window_chrome import install_borderless
 from .rounded_widgets import RoundedPanel, rounded_points
 from .game_buttons import SpriteButton, icon_photo
 from .layout_policy import right_column_width
+from .local_tools import build_local_tool
+from .login_tools import build_login_tool
+from lala_core.feature_progress import PROGRESS
 
 
 class LaLaDesktop(tk.Tk):
@@ -20,7 +24,17 @@ class LaLaDesktop(tk.Tk):
         self._chrome = install_borderless(self)
         self.configure(bg=t.BG)
         self._font = self._choose_font()
+        # BAT 傳入檢查結果供 UI 提示；沒有任何來源能直接解鎖登入。
+        self._startup_resource_status = os.environ.get(
+            "LALA_STARTUP_RESOURCE_STATUS", "not_checked")
+        if self._startup_resource_status not in ("not_checked", "failed", "transport_checked", "installed"):
+            self._startup_resource_status = "not_checked"
         self._feature_windows = {}
+        # Temporary, non-authoritative display from a manual legacy trial.
+        # Never expose it through the trusted SessionStore or command gate.
+        self._trial_role_name = ""
+        self._trial_role_text = tk.StringVar(
+            master=self, value="角色：等待登入\n夥伴：等待同步")
         self._configure_ttk()
         self._build()
 
@@ -60,15 +74,25 @@ class LaLaDesktop(tk.Tk):
         brand = self.text(header, "✦  LaLa  ｜  飄流幻境 RE", size=17, bold=True,
                           color=t.SECTION)
         brand.pack(anchor="w")
-        subtitle = self.text(header, "等待登入與角色資料同步  •  正式伺服器尚未接入",
+        startup_line = {
+            "not_checked": "未執行官方資源自檢",
+            "failed": "官方資源自檢未通過，仍可使用離線功能",
+            "transport_checked": "官方 Manifest 傳輸自檢通過，正式服協定尚未驗證",
+            "installed": "官方資源索引與 LaLa 所需 Bundle 已安裝驗證，正式服協定尚未驗證",
+        }[self._startup_resource_status]
+        subtitle = self.text(header, startup_line + "  •  正式伺服器尚未接入",
                              size=10, color=t.MUTED)
         subtitle.pack(anchor="w", pady=(3, 0))
         self._chrome.bind_drag(self._top, header, brand, subtitle)
         actions = tk.Frame(top, bg=t.PANEL)
         actions.pack(side="right", padx=12, pady=8)
-        self.text(actions, "● 離線預覽", color=t.WARN, size=10).pack(side="left", padx=11)
+        status_short = "● 資源已安裝／離線" if self._startup_resource_status == "installed" else (
+            "● 自檢通過／離線" if self._startup_resource_status == "transport_checked" else (
+            "● 自檢失敗／離線" if self._startup_resource_status == "failed"
+            else "● 尚未自檢／離線"))
+        self.text(actions, status_short, color=t.WARN, size=10).pack(side="left", padx=11)
         self._button(actions, "登入／選角", lambda: self.open_feature("accounts")).pack(side="left", padx=3)
-        self._button(actions, "中斷連線", lambda: self._offline_notice(), width=10).pack(side="left", padx=3)
+        self._button(actions, "中斷連線", self._disconnect_account, width=10).pack(side="left", padx=3)
         # 系統白色標題列移除後，保留最小化與關閉的操作入口（不提供最大化）。
         self._minimize_button = self._button(actions, "─", self._chrome.minimize, width=3)
         self._minimize_button.pack(side="left", padx=(12, 3))
@@ -101,6 +125,16 @@ class LaLaDesktop(tk.Tk):
 
     def _offline_notice(self):
         self._append_event("目前沒有建立連線，沒有任何中斷動作。")
+
+    def _disconnect_account(self):
+        window = self._feature_windows.get("accounts")
+        if window is not None and window.winfo_exists():
+            callback = getattr(window, "_lala_login_disconnect", None)
+            if callback is not None:
+                callback()
+                self._append_event("登入嘗試與會話已中斷；未傳送任何遊戲操作指令。")
+                return
+        self._offline_notice()
 
     def _build_left(self, parent):
         nav_panel = self._panel(parent, bg=t.SURFACE, inset=4)
@@ -168,8 +202,16 @@ class LaLaDesktop(tk.Tk):
                     "party": "隊伍：等待角色同步",
                     "efficiency": "經驗資料：等待首場紀錄",
                 }[feature_key]
-                self.text(card_body, detail, size=10, color=t.MUTED, anchor="nw",
-                          justify="left").pack(fill="both", expand=True, padx=10, pady=(6, 6))
+                if feature_key == "characters":
+                    tk.Label(card_body, textvariable=self._trial_role_text,
+                             font=(self._font, 10), fg=t.MUTED, bg=t.SURFACE,
+                             anchor="nw", justify="left",
+                             wraplength=330).pack(
+                                 fill="both", expand=True, padx=10, pady=(6, 6))
+                else:
+                    self.text(card_body, detail, size=10, color=t.MUTED,
+                              anchor="nw", justify="left").pack(
+                                  fill="both", expand=True, padx=10, pady=(6, 6))
 
     def _build_chat(self, parent):
         chat_panel = self._panel(parent, bg=t.SURFACE, radius=16, inset=7)
@@ -253,6 +295,33 @@ class LaLaDesktop(tk.Tk):
         self._events.see("end")
         self._events.configure(state="disabled")
 
+    def show_trial_role_preview(self, role):
+        """Display-only S3-1 trial evidence; never a trusted game session."""
+        if (not role.world_packet_observed or not role.initial_data_complete
+                or role.role_id is None):
+            self.clear_trial_role_preview()
+            return
+        self._trial_role_name = role.character_name
+        self._trial_role_text.set(
+            f"試驗角色：{role.character_name}\n"
+            f"場景 {role.scene}｜座標 {role.x}, {role.y}（未認證）")
+
+    def show_trial_position_preview(self, position):
+        """僅 UI 呈現已綁定 S3-1 role_id 的後續位置樣本，不保存或授權。"""
+        if not self._trial_role_name or position is None:
+            return
+        if (position.authoritative or position.sequence_verified
+                or position.own_messages < 1):
+            return
+        self._trial_role_text.set(
+            f"試驗角色：{self._trial_role_name}\n"
+            f"末次觀測 {position.scene}｜{position.x}, {position.y}"
+            "（試驗已結束／未認證）")
+
+    def clear_trial_role_preview(self):
+        self._trial_role_name = ""
+        self._trial_role_text.set("角色：等待登入\n夥伴：等待同步")
+
     def _show_all_features(self):
         window = self._feature_windows.get("_catalog")
         if window is not None and window.winfo_exists():
@@ -312,7 +381,8 @@ class LaLaDesktop(tk.Tk):
         feature = BY_KEY[key]
         window = tk.Toplevel(self)
         self._feature_windows[key] = window
-        window.title(f"LaLa ｜{feature.title}（UI 預覽）")
+        window.title(f"LaLa ｜{feature.title}" + (
+            "（協定驗證中）" if key == "accounts" else "（UI 預覽）"))
         apply_fixed_window(window, kind="dialog", parent=self)
         chrome = install_borderless(window)
         window.configure(bg=t.BG)
@@ -327,11 +397,22 @@ class LaLaDesktop(tk.Tk):
         chrome.bind_drag(window, pane, toolbar, label)
         self.text(pane, feature.description, size=12, wraplength=510,
                   justify="left").pack(anchor="w", padx=24)
-        self.text(pane, "目前僅有 UI 佔位，尚未接入遊戲功能。",
-                  size=12, color=t.WARN).pack(anchor="w", padx=24, pady=(20, 8))
-        self.text(pane, "舊版參考：" + feature.legacy_area, size=10,
-                  color=t.MUTED, wraplength=510, justify="left").pack(anchor="w", padx=24)
-        self._button(pane, "關閉", window.destroy).pack(anchor="e", side="bottom", padx=24, pady=20)
+        tool_ready = (build_login_tool(pane, font_name=self._font,
+                                       button_factory=self._button)
+                      if key == "accounts" else
+                      build_local_tool(pane, key, font_name=self._font,
+                                       button_factory=self._button))
+        if not tool_ready:
+            self.text(pane, PROGRESS[key].local_capability + "；正式伺服器尚未接入。",
+                      size=12, color=t.WARN, wraplength=510,
+                      justify="left").pack(anchor="w", padx=24, pady=(20, 8))
+        elif key not in ("accounts", "resources"):
+            self.text(pane, "目前為手動資料規劃，非遊戲角色同步或自動操作。",
+                      size=10, color=t.WARN).pack(anchor="w", padx=24, pady=(2, 4))
+        if not tool_ready:
+            self.text(pane, "舊版參考：" + feature.legacy_area, size=10,
+                      color=t.MUTED, wraplength=510, justify="left").pack(anchor="w", padx=24)
+        self._button(pane, "關閉", window.destroy).pack(anchor="e", side="bottom", padx=24, pady=14)
 
 
 def main():

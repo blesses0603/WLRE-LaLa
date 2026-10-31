@@ -18,6 +18,14 @@ jobs:
         run: python -m compileall -q lala_core lala_desktop lala_android
       - name: Tkinter interface smoke test (Xvfb)
         run: xvfb-run -a python -m unittest discover -s tests -p 'test_classic_desktop_smoke.py' -v
+      - name: Local planning UI interactive smoke test (Xvfb)
+        run: xvfb-run -a python -m unittest discover -s tests -p 'test_local_tools_smoke.py' -v
+      - name: Read-only official resource UI smoke test (Xvfb, no network)
+        run: xvfb-run -a python -m unittest discover -s tests -p 'test_resource_ui_smoke.py' -v
+      - name: Login UI smoke test (Xvfb, no credentials sent)
+        run: xvfb-run -a python -m unittest discover -s tests -p 'test_login_ui_smoke.py' -v
+      - name: Launcher resource preflight banner smoke test (Xvfb, no network)
+        run: xvfb-run -a python -m unittest discover -s tests -p 'test_startup_banner_smoke.py' -v
 
   windows-bat-launcher:
     runs-on: windows-latest
@@ -41,6 +49,12 @@ jobs:
       - name: Verify repeated startup reuses environment
         shell: cmd
         run: call run_lala.bat --check
+      - name: Verify console-free Python launcher exists
+        shell: cmd
+        run: if not exist .venv\Scripts\pythonw.exe exit /b 1
+      - name: Verify GUI spawn contract (without launching UI)
+        shell: cmd
+        run: .venv\Scripts\python.exe -m unittest discover -s tests -p test_gui_launcher.py -v
       - name: Test dependency from isolated local environment
         shell: cmd
         run: .venv\Scripts\python.exe -m unittest discover -s tests -p test_game_buttons.py -v
