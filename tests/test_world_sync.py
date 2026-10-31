@@ -175,9 +175,6 @@ class WorldSyncTests(unittest.TestCase):
         self.assertEqual(self.store.view().server_state["x"], 20)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
     def test_verified_heartbeat_keeps_stationary_world_alive(self):
         self.attach()
@@ -233,3 +230,7 @@ if __name__ == "__main__":
             endpoint_verified=True))
         self.assertFalse(self.store.view().connected)
         self.assertFalse(self.engine.position(self.position(1)))
+
+if __name__ == "__main__":
+    unittest.main()
+
