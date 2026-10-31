@@ -63,21 +63,27 @@ class WorldSync:
     並要求人工重新登入及新的完整快照，不會自動重連或重送操作。
     """
 
-    def __init__(self, session: SessionStore, *, clock=None, idle_timeout=90):
+    def __init__(self, session: SessionStore, *, clock=None, idle_timeout=90,
+                 bootstrap_timeout=30):
         if not isinstance(session, SessionStore):
             raise TypeError("需要共用 SessionStore")
         if (type(idle_timeout) not in (int, float)
                 or not 15 <= idle_timeout <= 300):
             raise ValueError("閒置逾時需為 15～300 秒")
+        if (type(bootstrap_timeout) not in (int, float)
+                or not 5 <= bootstrap_timeout <= 60):
+            raise ValueError("初始角色快照逾時需為 5～60 秒")
         self.session = session
         self._clock = clock if clock is not None else time.monotonic
         self._timeout = idle_timeout
+        self._bootstrap_timeout = bootstrap_timeout
         self._lock = RLock()
         self._phase = WorldPhase.DISCONNECTED
         self._generation = None
         self._role_id = None
         self._revision = -1
         self._last_seen = None
+        self._attached_at = None
         self._reason = "尚未建立可信會話"
 
     def view(self) -> WorldStatus:
@@ -120,6 +126,7 @@ class WorldSync:
             self._role_id = role_id
             self._revision = -1
             self._last_seen = self._clock()
+            self._attached_at = self._last_seen
             self._reason = "等待可信初始角色快照"
             return True
 
@@ -131,6 +138,7 @@ class WorldSync:
         self._role_id = None
         self._revision = -1
         self._last_seen = None
+        self._attached_at = None
         self._reason = reason
 
     def disconnect(self) -> None:
@@ -226,6 +234,10 @@ class WorldSync:
                 return False
             if self.session.view().generation != self._generation:
                 self._invalidate("會話已更換，清除過期世界資料", resync=False)
+                return False
+            if (self._phase is WorldPhase.WAITING_SNAPSHOT
+                    and self._clock() - self._attached_at >= self._bootstrap_timeout):
+                self._invalidate("等待初始角色快照逾時，需重新登入", resync=True)
                 return False
             if self._clock() - self._last_seen >= self._timeout:
                 self._invalidate("超過接收閒置上限，請重新登入", resync=True)
