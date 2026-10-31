@@ -223,6 +223,8 @@ class LoginCoordinator:
                 return False
             if not self.world_sync.full_snapshot(update):
                 self._phase = "resync_required"
+                self._roles = ()
+                self._verified_outcome = None
                 self._reason = "初始角色快照失敗，需重新登入"
                 return False
             self._phase = "world_ready"
@@ -237,6 +239,8 @@ class LoginCoordinator:
             accepted = self.world_sync.position(update)
             if not self.world_sync.view().authoritative:
                 self._phase = "resync_required"
+                self._roles = ()
+                self._verified_outcome = None
                 self._reason = "角色狀態失效，需重新登入"
             return accepted
 
@@ -261,5 +265,7 @@ class LoginCoordinator:
             healthy = self.world_sync.tick()
             if not healthy:
                 self._phase = "resync_required"
+                self._roles = ()
+                self._verified_outcome = None
                 self._reason = "接收逾時或會話更換，需重新登入"
             return healthy
