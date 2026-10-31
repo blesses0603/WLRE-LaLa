@@ -106,7 +106,11 @@ class WorldSyncTests(unittest.TestCase):
         self.assertTrue(self.attach())
         self.assertFalse(self.engine.full_snapshot(
             self.position(0, generation=self.generation - 2)))
-        self.assertFalse(self.store.view().connected)
+        # Old worker cannot kill the newly established session.
+        self.assertTrue(self.store.view().connected)
+        self.assertEqual(self.engine.view().phase, WorldPhase.WAITING_SNAPSHOT)
+        self.assertTrue(self.engine.full_snapshot(self.position(0)))
+        self.assertTrue(self.engine.view().authoritative)
 
     def test_fail_closed_with_unreviewed_protocol_or_schema(self):
         for outcome, schema in ((UNVERIFIED, True), (OK, False),
@@ -135,20 +139,40 @@ class WorldSyncTests(unittest.TestCase):
         self.assertEqual(self.engine.view().phase, WorldPhase.RESYNC_REQUIRED)
 
     def test_boolean_or_negative_fields_never_count_as_valid(self):
+        for kind in ("boolean_generation", "boolean_revision", "negative_scene"):
+            with self.subTest(kind=kind):
+                store = SessionStore()
+                generation = store.start(authenticated=True, resources_verified=True)
+                engine = WorldSync(store)
+                self.assertTrue(engine.attach(generation=generation, role_id=123,
+                                              outcome=OK, world_schema_verified=True))
+                packet = {
+                    "generation": generation, "revision": 0,
+                    "role_id": 123, "scene": 1, "x": 1, "y": 1,
+                    "schema_verified": True,
+                }
+                if kind == "boolean_generation":
+                    packet["generation"] = True
+                elif kind == "boolean_revision":
+                    packet["revision"] = True
+                else:
+                    packet["scene"] = -1
+                self.assertFalse(engine.full_snapshot(VerifiedPosition(**packet)))
+                self.assertFalse(store.view().connected)
+
+    def test_old_delta_does_not_disconnect_current_generation(self):
         self.attach()
-        for bad in (
-            VerifiedPosition(True, 0, 123, 1, 1, 1, True),
-            VerifiedPosition(self.generation, True, 123, 1, 1, 1, True),
-            VerifiedPosition(self.generation, 0, 123, -1, 1, 1, True),
-        ):
-            with self.subTest(packet=bad):
-                # Start a new genuine session for each intentional invalidation.
-                if self.engine.view().phase != WorldPhase.WAITING_SNAPSHOT:
-                    self.generation = self.store.start(
-                        authenticated=True, resources_verified=True)
-                    self.assertTrue(self.attach())
-                self.assertFalse(self.engine.full_snapshot(bad))
-                self.assertFalse(self.store.view().connected)
+        self.engine.full_snapshot(self.position(0))
+        old = self.generation
+        self.engine.disconnect()
+        self.generation = self.store.start(authenticated=True,
+                                           resources_verified=True)
+        self.attach()
+        self.engine.full_snapshot(self.position(0))
+        self.assertFalse(self.engine.position(
+            self.position(1, generation=old, x=900)))
+        self.assertTrue(self.engine.view().authoritative)
+        self.assertEqual(self.store.view().server_state["x"], 20)
 
 
 if __name__ == "__main__":
