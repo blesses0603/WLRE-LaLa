@@ -20,6 +20,7 @@ from .server_probe import LINE_SNAPSHOT
 from .wire import WireDecodeError
 from .legacy_world import parse_legacy_world_player
 from .feature_wire_bridge import FeatureWireBridge, FeatureWireEvidence
+from .legacy_position_probe import LegacyPositionProbe, LegacyPositionEvidence
 
 
 MAX_TRIAL_PACKETS = 512
@@ -73,6 +74,7 @@ class LegacyReadOnlyObservation:
     fixed_length_checks: tuple[tuple[int, int, int, int, int], ...] = ()
     # 27-feature evidence is a strictly anonymous, NOT server-verified report.
     feature_evidence: FeatureWireEvidence | None = None
+    position_evidence: LegacyPositionEvidence | None = None
 
 
 
@@ -104,6 +106,7 @@ class LegacyLoginTrial:
         self._formal_decoder = None  # retain partial frames across role-list and selection
         self._pending_packets = deque()
         self._world_selected = False
+        self._selected_world_player = None
         self._heartbeats_replied = 0
 
     def close(self):
@@ -115,6 +118,7 @@ class LegacyLoginTrial:
             self._formal_decoder = None
             self._pending_packets.clear()
             self._world_selected = False
+            self._selected_world_player = None
         if connection is not None:
             try:
                 connection.shutdown(socket.SHUT_RDWR)
@@ -346,6 +350,7 @@ class LegacyLoginTrial:
                         if self._stopped.is_set() or self._socket is not connection:
                             raise LoginError("選角完成前試驗已中斷")
                         self._world_selected = True
+                        self._selected_world_player = player
                         succeeded = True
                     return LegacyRoleTrialResult(
                         slot, True, False, True, player.role_id,
@@ -369,7 +374,9 @@ class LegacyLoginTrial:
             raise LoginError("唯讀觀測時間須為 1～120 秒")
         with self._lock:
             connection, decoder = self._socket, self._formal_decoder
+            player = self._selected_world_player
             if (self._stopped.is_set() or not self._world_selected
+                    or player is None
                     or connection is None or decoder is None):
                 raise LoginError("尚未完成可觀測的舊版選角試驗")
             self._world_selected = False  # observation is single-use
@@ -377,6 +384,8 @@ class LegacyLoginTrial:
         packet_types = Counter()
         packet_sizes = {}
         bridge = FeatureWireBridge(profile="legacy-1262")
+        position_probe = LegacyPositionProbe(
+            role_id=player.role_id, scene=player.scene, x=player.x, y=player.y)
         fixed_length_seen = Counter()
         fixed_length_matched = Counter()
         initial_heartbeats = self._heartbeats_replied
@@ -391,6 +400,7 @@ class LegacyLoginTrial:
                 key = packet.main, packet.sub
                 packet_types[key] += 1
                 bridge.observe(packet)
+                position_probe.observe(packet)
                 size = len(packet.payload)
                 low, high = packet_sizes.get(key, (size, size))
                 packet_sizes[key] = min(low, size), max(high, size)
@@ -420,6 +430,7 @@ class LegacyLoginTrial:
                     for (main, sub), expected in sorted(
                         LEGACY_FIXED_ATTRIBUTE_LENGTHS.items())
                     if fixed_length_seen[(main, sub)]),
-                feature_evidence=bridge.report())
+                feature_evidence=bridge.report(),
+                position_evidence=position_probe.report())
         finally:
             self.close()
