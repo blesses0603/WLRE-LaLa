@@ -199,3 +199,20 @@ if __name__ == "__main__":
         self.now[0] += 1
         self.assertFalse(self.engine.tick())
         self.assertFalse(self.store.view().connected)
+
+    def test_bootstrap_timeout_ignores_heartbeat_renewal(self):
+        self.assertTrue(self.attach())
+        self.now[0] += 25
+        self.assertTrue(self.engine.verified_activity(
+            generation=self.generation, protocol_verified=True,
+            endpoint_verified=True))
+        self.now[0] += 5
+        self.assertFalse(self.engine.tick())
+        self.assertEqual(self.engine.view().phase, WorldPhase.RESYNC_REQUIRED)
+        self.assertFalse(self.store.view().connected)
+        self.assertFalse(self.store.view().server_state)
+
+    def test_invalid_bootstrap_timeout_rejected(self):
+        for limit in (0, 61, True, "30"):
+            with self.subTest(value=limit), self.assertRaises(ValueError):
+                WorldSync(self.store, bootstrap_timeout=limit)
