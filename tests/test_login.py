@@ -3,9 +3,11 @@ import unittest
 from unittest.mock import Mock
 
 from lala_core.login import (
-    LoginCoordinator, LoginError, VerifiedLoginOutcome, validate_credentials,
+    LoginCoordinator, LoginError, VerifiedLoginOutcome, VerifiedRoleSelection,
+    validate_credentials,
 )
 from lala_core.session import SessionStore
+from lala_core.world_sync import VerifiedPosition, WorldPhase
 
 
 class FakeApprovedAdapter:
@@ -103,3 +105,83 @@ class LoginServiceTests(unittest.TestCase):
         self.assertNotIn("myuser", str(err.exception))
         self.assertNotIn("mysecret", str(err.exception))
         self.assertFalse(c.session.view().connected)
+
+    def test_verified_world_sync_connected_to_login_lifecycle(self):
+        adapter = FakeApprovedAdapter()
+        login = LoginCoordinator(adapter=adapter)
+        generation = login.begin(line_id=101, account="demo", password="secret",
+                                 resources_verified=True)
+        result = login.authenticate(generation=generation, account="demo",
+                                    password="secret")
+        self.assertTrue(login.complete(generation, result))
+        denied = VerifiedRoleSelection(1, 123, True, True, False)
+        self.assertFalse(login.accept_verified_role(
+            generation=generation, selected=denied))
+        self.assertEqual(login.view().phase, "role_selection")
+        accepted = VerifiedRoleSelection(1, 123, True, True, True)
+        self.assertTrue(login.accept_verified_role(
+            generation=generation, selected=accepted))
+        self.assertEqual(login.view().phase, "world_initializing")
+        self.assertFalse(login.world_sync.view().authoritative)
+        epoch = login.session.view().generation
+        initial = VerifiedPosition(epoch, 0, 123, 10, 20, 30, True)
+        self.assertTrue(login.accept_world_snapshot(
+            generation=generation, update=initial))
+        self.assertEqual(login.view().phase, "world_ready")
+        self.assertTrue(login.world_sync.view().authoritative)
+        update = VerifiedPosition(epoch, 1, 123, 10, 21, 30, True)
+        self.assertTrue(login.accept_world_position(
+            generation=generation, update=update))
+        self.assertEqual(login.session.view().server_state["x"], 21)
+        self.assertNotIn("secret", str(login.world_sync.view()))
+        login.cancel()
+        self.assertFalse(login.world_sync.view().authoritative)
+        self.assertFalse(login.session.view().connected)
+
+    def test_gap_and_old_generation_events_cannot_resurrect_world(self):
+        login = LoginCoordinator(adapter=FakeApprovedAdapter())
+        gen = login.begin(line_id=101, account="fake", password="fake",
+                          resources_verified=True)
+        self.assertTrue(login.complete(gen, VerifiedLoginOutcome(
+            True, (1,), True, True)))
+        self.assertTrue(login.accept_verified_role(
+            generation=gen,
+            selected=VerifiedRoleSelection(1, 123, True, True, True)))
+        epoch = login.session.view().generation
+        self.assertTrue(login.accept_world_snapshot(
+            generation=gen,
+            update=VerifiedPosition(epoch, 0, 123, 1, 2, 3, True)))
+        self.assertFalse(login.accept_world_position(
+            generation=gen,
+            update=VerifiedPosition(epoch, 2, 123, 1, 2, 4, True)))
+        self.assertEqual(login.view().phase, "resync_required")
+        self.assertFalse(login.session.view().connected)
+        self.assertFalse(login.accept_world_position(
+            generation=gen,
+            update=VerifiedPosition(epoch, 1, 123, 1, 2, 3, True)))
+
+    def test_legacy_trial_cannot_escalate_to_verified_world(self):
+        login = LoginCoordinator()
+        self.assertFalse(login.accept_verified_role(
+            generation=login.view().generation,
+            selected=VerifiedRoleSelection(1, 123, False, False, False)))
+        self.assertEqual(login.world_sync.view().phase,
+                         WorldPhase.DISCONNECTED)
+        self.assertFalse(login.session.view().connected)
+
+    def test_disconnect_revokes_queued_world_result(self):
+        login = LoginCoordinator(adapter=FakeApprovedAdapter())
+        gen = login.begin(line_id=101, account="fake", password="fake",
+                          resources_verified=True)
+        self.assertTrue(login.complete(gen, VerifiedLoginOutcome(
+            True, (1,), True, True)))
+        self.assertTrue(login.accept_verified_role(
+            generation=gen,
+            selected=VerifiedRoleSelection(1, 123, True, True, True)))
+        old_epoch = login.session.view().generation
+        login.cancel()
+        self.assertFalse(login.accept_world_snapshot(
+            generation=gen,
+            update=VerifiedPosition(old_epoch, 0, 123, 1, 2, 3, True)))
+        self.assertFalse(login.session.view().server_state)
+
