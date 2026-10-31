@@ -45,8 +45,9 @@ class CommandGate:
         if not command.key or not command.capability:
             raise ValueError("操作與能力識別碼不可為空")
         view = self.session.view()
-        if not view.connected or not view.resource_verified:
-            raise PermissionDenied("伺服器會話或官方資源尚未驗證")
+        if (not view.connected or not view.resource_verified
+                or view.revision < 0):
+            raise PermissionDenied("尚無已驗證的完整角色快照，禁止發送操作")
         if command.requires_confirmation and not user_confirmed:
             raise PermissionDenied("操作尚未經使用者確認")
         if not self.adapter.supports(command.capability):
