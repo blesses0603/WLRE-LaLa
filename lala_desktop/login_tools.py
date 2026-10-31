@@ -213,6 +213,18 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                                  or "無"),
                             ]
                             feature_summary = "；".join(parts) + "。"
+                        position_summary = ""
+                        if result.position_evidence is not None:
+                            evidence = result.position_evidence
+                            position_summary = (
+                                f"；位置本人={evidence.own_messages}筆"
+                                f"（變化{evidence.changed_messages}／"
+                                f"重複{evidence.repeated_messages}）；"
+                                f"他人={evidence.other_role_messages}；"
+                                f"無效={evidence.invalid_messages}；"
+                                "位置無權威序號。")
+                            if root is not None and root.winfo_exists():
+                                root.show_trial_position_preview(evidence)
                         state["last_diagnostic"] = (
                             f"唯讀觀測60秒：非心跳={result.packets_seen}；"
                             f"心跳回覆={result.heartbeat_replies}；"
@@ -221,6 +233,7 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                             + (f"舊版定長符合筆數={length_checks}。" if length_checks
                                else "舊版定長符合筆數=無可檢查類型。")
                             + feature_summary
+                            + position_summary
                             + "僅編號、次數及長度，功能資料未同步且官方身分未驗證。")
                         top = "、".join(
                             f"S{main}-{sub}：{count} 筆"
@@ -236,7 +249,10 @@ def build_login_tool(parent, *, font_name, button_factory, adapter=None):
                             f"非心跳封包；{heartbeat_note}"
                             "試驗連線已關閉，尚非正式登入。"
                             f"\n封包類型共 {result.distinct_packet_types} 種；"
-                            f"最多顯示前 8 種（僅 ID）：{top}。")
+                            f"最多顯示前 8 種（僅 ID）：{top}。"
+                            + (f"\n本人位置觀測 {result.position_evidence.own_messages} 筆，"
+                               "非正式同步。"
+                               if result.position_evidence is not None else ""))
                     else:
                         status.set("限時唯讀觀測中止並關閉連線：" + message)
         except Empty:
