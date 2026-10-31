@@ -200,6 +200,25 @@ class WorldSync:
         self._last_seen = self._clock()
         return True
 
+    def verified_activity(self, *, generation: int,
+                          protocol_verified=False, endpoint_verified=False) -> bool:
+        """僅更新接收時間：已審核接收器的合法心跳／其他封包。
+
+        不更動角色位置、revision、可信權限，且不發送網路訊息。
+        未驗證或舊世代封包不能維持會話存活。
+        """
+        with self._lock:
+            if (self._phase not in (WorldPhase.WAITING_SNAPSHOT,
+                                    WorldPhase.READY)
+                    or type(generation) is not int
+                    or generation != self._generation
+                    or protocol_verified is not True
+                    or endpoint_verified is not True
+                    or self.session.view().generation != self._generation):
+                return False
+            self._last_seen = self._clock()
+            return True
+
     def tick(self) -> bool:
         """由已審核的接收迴圈定時呼叫；逾時失效，絕不自行發心跳。"""
         with self._lock:
