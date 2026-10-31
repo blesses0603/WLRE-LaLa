@@ -177,3 +177,25 @@ class WorldSyncTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_verified_heartbeat_keeps_stationary_world_alive(self):
+        self.attach()
+        self.engine.full_snapshot(self.position(0))
+        self.now[0] += 25
+        self.assertFalse(self.engine.verified_activity(
+            generation=self.generation, protocol_verified=False,
+            endpoint_verified=True))
+        self.assertFalse(self.engine.verified_activity(
+            generation=self.generation - 1, protocol_verified=True,
+            endpoint_verified=True))
+        self.assertTrue(self.engine.verified_activity(
+            generation=self.generation, protocol_verified=True,
+            endpoint_verified=True))
+        self.now[0] += 29
+        self.assertTrue(self.engine.tick())
+        self.assertTrue(self.engine.view().authoritative)
+        self.assertEqual(self.store.view().revision, 0)
+        self.now[0] += 1
+        self.assertFalse(self.engine.tick())
+        self.assertFalse(self.store.view().connected)
