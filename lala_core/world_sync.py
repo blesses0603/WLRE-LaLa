@@ -141,6 +141,10 @@ class WorldSync:
         with self._lock:
             if self._phase is not WorldPhase.WAITING_SNAPSHOT:
                 return False
+            if (isinstance(packet, VerifiedPosition)
+                    and type(packet.generation) is int
+                    and packet.generation != self._generation):
+                return False  # delayed worker event must not kill a new session
             if not self._matches(packet):
                 self._invalidate("初始角色資料不合法，拒絕同步", resync=True)
                 return False
@@ -160,6 +164,10 @@ class WorldSync:
         with self._lock:
             if self._phase is not WorldPhase.READY:
                 return False
+            if (isinstance(packet, VerifiedPosition)
+                    and type(packet.generation) is int
+                    and packet.generation != self._generation):
+                return False  # ignore old generation without invalidating new
             if not self._matches(packet):
                 self._invalidate("角色或世界 Schema 不符，需重新登入", resync=True)
                 return False
