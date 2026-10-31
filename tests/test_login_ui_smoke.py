@@ -228,6 +228,7 @@ class LoginWindowTests(unittest.TestCase):
 
     def test_manual_readonly_observation_is_opt_in_and_stays_untrusted(self):
         from lala_core.feature_wire_bridge import FeatureWireBridge
+        from lala_core.legacy_position_probe import LegacyPositionEvidence
         from lala_core.wire import ObservedPacket
         from lala_desktop.app import LaLaDesktop
         from lala_desktop import login_tools
@@ -249,7 +250,7 @@ class LoginWindowTests(unittest.TestCase):
             3, 0, False, 2, ((7, 1, 2), (9, 9, 1)),
             ((7, 1, 8, 8), (9, 9, 3, 5)),
             ((8, 1, 10, 16, 16), (8, 2, 13, 17, 17)),
-            bridge.report())
+            bridge.report(), LegacyPositionEvidence(2, 1, 1, 1, 1, 111, 55, 66))
         with patch.object(login_tools, "verify_installed",
                           return_value={"resources_installed": True}), \
              patch.object(login_tools, "LegacyLoginTrial", return_value=fake):
@@ -313,6 +314,8 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertTrue(any("封包類型共 2 種" in msg for msg in texts))
                 self.assertTrue(any("S7-1：2 筆" in msg for msg in texts))
                 self.assertIn("試驗角色：測試玩家", root._trial_role_text.get())
+                self.assertIn("末次觀測 111｜55, 66",
+                              root._trial_role_text.get())
                 self.assertIn("未認證", root._trial_role_text.get())
                 buttons["複製診斷"].invoke()
                 root.update()
@@ -324,6 +327,9 @@ class LoginWindowTests(unittest.TestCase):
                 self.assertIn("S8-2=17/17筆符合13B", report)
                 self.assertIn("舊版尺寸吻合功能=characters:1", report)
                 self.assertIn("未解碼候選=guild:1", report)
+                self.assertIn("位置本人=2筆", report)
+                self.assertIn("位置無權威序號", report)
+                self.assertNotIn("55, 66", report)
                 self.assertNotIn("secret-not-retained", report)
                 self.assertNotIn("測試玩家", report)
                 self.assertNotIn("fake", report)
