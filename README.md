@@ -1,5 +1,19 @@
 # WLRe-LaLa — 全新 LaLa（P1 功能服務開發中）
 
+## P1 第一階段：可信連線生命週期與角色快照基礎（2026-10-31）
+
+本次在原有 `LoginCoordinator` 與 `SessionStore` 之間加入 `lala_core/world_sync.py` 的 **`WorldSync`**，讓未來經審核的正式服 Adapter 有明確、安全的世界事件生命週期；**沒有聲稱現有舊版 XOR 試驗已成為可信登入**。
+
+- **正式路徑狀態：** `role_selection → world_initializing → world_ready`；只有經核對的登入回覆、伺服器選角、端點身分及 World Schema 均成立，且收到完整 revision 0 的結構化初始角色位置快照，才進入 `world_ready`。舊版 60 秒觀測的 `S3-1` 或封包大小符合，**不能**觸發此路徑。
+- **持續事件與一致性：** 事件需要符合原角色 ID、同一 SessionStore generation、已驗證的 Schema 及嚴格連續的 revision。舊版過期世代事件只能被忽略；同世代的缺號、角色錯誤或格式無效事件會立即失效連線及清除快照，狀態改為 `resync_required`，必須重新完成登入和初始快照。
+- **監督與風險控制：** 可設定 15～300 秒（預設 90 秒）的接收閒置逾時；由已審核來源提供的合法心跳可以續期，但不能更新角色狀態或解鎖操作。沒有自動重發帳密、沒有無限重連、沒有猜測式心跳。此模組本身完全**不開 Socket、不接觸密碼、不發送遊戲封包**。
+- **指令閘門收緊：** `CommandGate` 現在要求 `SessionStore` 至少有一筆已審核的完整初始快照（revision ≥ 0），單靠「驗證登入成功」不再足以送出命令。其他已審核能力、明確使用者確認及未知結果不重試保護維持不變。
+- **實際接入範圍：** 此管理器已整合到 `LoginCoordinator.accept_verified_role/accept_world_snapshot/accept_world_position/accept_verified_activity/check_world_health`，但目前預設登入 Adapter 仍為 `DisabledLoginAdapter`。Windows 舊版手動登入／選角／唯讀觀測與 Android 原型**不會因這次修改獲得正式服操作權限**。
+- **已新增的離線驗收：** 完整初始快照、連續位移、拒絕未驗證身分／Schema、跳號失效、過期封包忽略、錯角色、閒置逾時、合法心跳續期、取消後事件不得復活、新登入世代安全隔離，以及指令閘門在初始快照前拒絕發送。CI 測試不等於 Windows 或 Android 正式伺服器 E2E。
+
+**第一階段尚未完成的關鍵事項：** 取得可獨立確認身分的現行官方端點與完整世界封包格式、實作正式服收包 Adapter、可信初始快照及持續事件的實機對照，以及經測試的重新登入／重同步流程。在此之前，`world_ready` 只可在**合成的已審核 Adapter 測試**中抵達，不能當成真實正式服已成功。
+
+
 ## P1 下一批：27 功能唯讀事件橋接（2026-10-30）
 
 本輪以舊版 `WLRe_lala` 的固定長度事件定義為參考，在 `lala_core/feature_wire_bridge.py` 新增沒有連線／send 能力的 **27 功能共用唯讀證據橋接器**，並將其接入已有的 60 秒手動登入觀測。不是將 27 個遊戲服務一次啟動：
