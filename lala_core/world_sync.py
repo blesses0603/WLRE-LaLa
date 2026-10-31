@@ -145,9 +145,21 @@ class WorldSync:
         with self._lock:
             self._invalidate("連線已中斷，需重新登入", resync=False)
 
+    def _expired(self) -> bool:
+        """Also enforce deadlines on incoming packets, not only timer ticks."""
+        if (self._phase is WorldPhase.WAITING_SNAPSHOT
+                and self._clock() - self._attached_at >= self._bootstrap_timeout):
+            self._invalidate("等待初始角色快照逾時，需重新登入", resync=True)
+            return True
+        if (self._phase in (WorldPhase.WAITING_SNAPSHOT, WorldPhase.READY)
+                and self._clock() - self._last_seen >= self._timeout):
+            self._invalidate("超過接收閒置上限，請重新登入", resync=True)
+            return True
+        return False
+
     def full_snapshot(self, packet: VerifiedPosition) -> bool:
         with self._lock:
-            if self._phase is not WorldPhase.WAITING_SNAPSHOT:
+            if self._phase is not WorldPhase.WAITING_SNAPSHOT or self._expired():
                 return False
             if (isinstance(packet, VerifiedPosition)
                     and type(packet.generation) is int
@@ -170,7 +182,7 @@ class WorldSync:
 
     def position(self, packet: VerifiedPosition) -> bool:
         with self._lock:
-            if self._phase is not WorldPhase.READY:
+            if self._phase is not WorldPhase.READY or self._expired():
                 return False
             if (isinstance(packet, VerifiedPosition)
                     and type(packet.generation) is int
@@ -224,6 +236,8 @@ class WorldSync:
                     or endpoint_verified is not True
                     or self.session.view().generation != self._generation):
                 return False
+            if self._expired():
+                return False
             self._last_seen = self._clock()
             return True
 
@@ -235,11 +249,4 @@ class WorldSync:
             if self.session.view().generation != self._generation:
                 self._invalidate("會話已更換，清除過期世界資料", resync=False)
                 return False
-            if (self._phase is WorldPhase.WAITING_SNAPSHOT
-                    and self._clock() - self._attached_at >= self._bootstrap_timeout):
-                self._invalidate("等待初始角色快照逾時，需重新登入", resync=True)
-                return False
-            if self._clock() - self._last_seen >= self._timeout:
-                self._invalidate("超過接收閒置上限，請重新登入", resync=True)
-                return False
-            return True
+            return not self._expired()
