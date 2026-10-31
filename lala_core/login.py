@@ -240,6 +240,19 @@ class LoginCoordinator:
                 self._reason = "角色狀態失效，需重新登入"
             return accepted
 
+    def accept_verified_activity(self, *, generation: int,
+                                 protocol_verified=False,
+                                 endpoint_verified=False) -> bool:
+        """由已審核接收器通知合法流量，不能直接提高角色權威性。"""
+        with self._lock:
+            if (generation != self._generation or self._phase not in (
+                    "world_initializing", "world_ready")):
+                return False
+            return self.world_sync.verified_activity(
+                generation=self.session.view().generation,
+                protocol_verified=protocol_verified,
+                endpoint_verified=endpoint_verified)
+
     def check_world_health(self) -> bool:
         """安全且不發送網路封包的閒置監督入口。"""
         with self._lock:
