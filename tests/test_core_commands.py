@@ -28,9 +28,14 @@ class GateTests(unittest.TestCase):
 
     def test_requires_confirmation_and_adapter(self):
         store = SessionStore()
-        store.start(authenticated=True, resources_verified=True)
+        generation = store.start(authenticated=True, resources_verified=True)
         adapter = FakeAdapter()
         gate = CommandGate(store, adapter)
+        with self.assertRaises(PermissionDenied):
+            gate.submit(Command("battle", "reviewed"), user_confirmed=True)
+        # Only a mock audited adapter may publish this synthetic baseline.
+        self.assertTrue(store.apply(generation=generation, revision=0,
+                                    data={"role_id": 123}, authoritative=True))
         with self.assertRaises(PermissionDenied):
             gate.submit(Command("battle", "reviewed"))
         with self.assertRaises(PermissionDenied):
@@ -47,7 +52,9 @@ class GateTests(unittest.TestCase):
 
     def test_timeout_never_retries(self):
         store = SessionStore()
-        store.start(authenticated=True, resources_verified=True)
+        generation = store.start(authenticated=True, resources_verified=True)
+        self.assertTrue(store.apply(generation=generation, revision=0,
+                                    data={"role_id": 123}, authoritative=True))
         adapter = FakeAdapter()
         adapter.fail = True
         gate = CommandGate(store, adapter)
